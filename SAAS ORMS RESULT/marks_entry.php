@@ -556,6 +556,16 @@ function mePersist(array $ctx, array $rows, $dry = false) {
 
 // ---- offline score sheet: csv text in, csv text out ----
 
+// remove accents for flexible bilingual matching
+function meStripAccents($str) {
+    $accents = [
+        'á'=>'a', 'é'=>'e', 'í'=>'i', 'ó'=>'o', 'ú'=>'u', 'Á'=>'a', 'É'=>'e', 'Í'=>'i', 'Ó'=>'o', 'Ú'=>'u',
+        'ñ'=>'n', 'Ñ'=>'n', 'ü'=>'u', 'Ü'=>'u', 'à'=>'a', 'è'=>'e', 'ì'=>'i', 'ò'=>'o', 'ù'=>'u',
+        'À'=>'a', 'È'=>'e', 'Ì'=>'i', 'Ò'=>'o', 'Ù'=>'u'
+    ];
+    return strtr((string)$str, $accents);
+}
+
 // spreadsheet whitespace incl nbsp. $all strips it everywhere, else just the ends
 function meTrim($v, $all = false) {
     $s = (string)$v;
@@ -563,11 +573,12 @@ function meTrim($v, $all = false) {
     return $r === null ? trim($s) : $r;   // odd encoding -> plain trim, never null
 }
 
-// "Mathematics (100)" -> "mathematics". case, spacing, underscores and the max-mark suffix all ignored
+// "Matemáticas (100)" -> "matematicas". case, spacing, accents, underscores and max-mark suffix all ignored
 function meNorm($s) {
     $s = meTrim(preg_replace('/\([^()]*\)\s*$/', '', meTrim($s)));
     $d = preg_replace('/\s*[-\x{2010}-\x{2015}\x{2212}]\s*/u', ' - ', $s);   // every dash to one shape
     if ($d !== null) $s = $d;
+    $s = meStripAccents($s);
     return mb_strtolower(preg_replace('/[\s_]+/', ' ', $s), 'UTF-8');
 }
 
@@ -580,8 +591,8 @@ function meSheetCols(array $sub, array $comps = []) {
                 'label' => $sub['name'] . ' — ' . $cp['name'] . ' (' . meNum($cp['max_marks']) . ')'];
     }, $comps);
     return $c['split']
-        ? [['id' => $id, 'part' => 't', 'label' => $sub['name'] . ' Theory ('    . meNum($c['theory'])    . ')'],
-           ['id' => $id, 'part' => 'p', 'label' => $sub['name'] . ' Practical (' . meNum($c['practical']) . ')']]
+        ? [['id' => $id, 'part' => 't', 'label' => $sub['name'] . ' Teoría ('    . meNum($c['theory'])    . ')'],
+           ['id' => $id, 'part' => 'p', 'label' => $sub['name'] . ' Práctica (' . meNum($c['practical']) . ')']]
         : [['id' => $id, 'part' => '',  'label' => $sub['name'] . ' ('           . meNum($c['total'])     . ')']];
 }
 
@@ -602,11 +613,12 @@ function meSheetVal($m, $part, array $comp = []) {
     return $v === null ? '' : meNum($v);
 }
 
-// rfc 4180 line: quote only when it matters, "" escapes a quote
-function meCsvRow(array $r) {
-    return implode(',', array_map(function ($v) {
+// rfc 4180 line: quote only when it matters, "" escapes a quote. Default ';' for Spanish Excel
+function meCsvRow(array $r, $delim = ';') {
+    $pattern = $delim === ';' ? '/[";\r\n]/' : '/[",\r\n]/';
+    return implode($delim, array_map(function ($v) use ($pattern) {
         $s = (string)$v;
-        return preg_match('/[",\r\n]/', $s) ? '"' . str_replace('"', '""', $s) . '"' : $s;
+        return preg_match($pattern, $s) ? '"' . str_replace('"', '""', $s) . '"' : $s;
     }, $r)) . "\r\n";
 }
 
@@ -616,11 +628,28 @@ function meCsvSafe($s) {
     return ($s !== '' && strpos('=+@', $s[0]) !== false) ? "'" . $s : $s;
 }
 
-// rfc 4180 parse, mirrors ORMS.parseCSV: quoted fields, "" escape, embedded commas/newlines, crlf|lf|cr
+// rfc 4180 parse, mirrors ORMS.parseCSV: quoted fields, "" escape, embedded commas/semicolons/newlines, crlf|lf|cr
 function meParseCsv($text) {
     $rows = []; $row = []; $val = ''; $inQ = false;
     $s = (string)$text;
     if (substr($s, 0, 3) === "\xEF\xBB\xBF") $s = substr($s, 3);   // excel bom
+
+    // Auto-detect delimiter from the first non-empty line (outside quotes)
+    $delim = ',';
+    $countSemi = 0; $countComma = 0; $inDetectQ = false;
+    for ($d = 0, $dl = strlen($s); $d < $dl; $d++) {
+        $dc = $s[$d];
+        if ($dc === '"') $inDetectQ = !$inDetectQ;
+        elseif (!$inDetectQ) {
+            if ($dc === ';') $countSemi++;
+            elseif ($dc === ',') $countComma++;
+            elseif ($dc === "\n" || $dc === "\r") {
+                if ($countSemi > 0 || $countComma > 0) break;
+            }
+        }
+    }
+    if ($countSemi > $countComma) $delim = ';';
+
     for ($i = 0, $n = strlen($s); $i < $n; $i++) {
         $c = $s[$i];
         if ($inQ) {
@@ -628,7 +657,7 @@ function meParseCsv($text) {
             if (($s[$i + 1] ?? '') === '"') { $val .= '"'; $i++; } else $inQ = false;
         } elseif ($c === '"') {
             $inQ = true;
-        } elseif ($c === ',') {
+        } elseif ($c === $delim) {
             $row[] = $val; $val = '';
         } elseif ($c === "\n" || $c === "\r") {
             if ($c === "\r" && ($s[$i + 1] ?? '') === "\n") $i++;   // crlf
@@ -641,13 +670,14 @@ function meParseCsv($text) {
     return $rows;
 }
 
-// AB/A/ABS/ABSENT = absent · '' and a dash = no mark · trailing .0 and stray spaces tolerated
+// AB/A/ABS/ABSENT/AUSENTE/FALTA = absent · '' and a dash = no mark · trailing .0 and stray spaces tolerated · decimal comma allowed
 function meCell($v) {
     $s = meTrim($v, true);
     if ($s === '' || $s === '-' || $s === '–' || $s === '—') return ['blank', null];
-    if (preg_match('/^(ab|a|abs|absent)$/i', $s))            return ['absent', null];
-    if (!preg_match('/^-?\d+(\.\d+)?$/', $s))                return ['bad', null];
-    return ['num', round((float)$s, 2)];
+    if (preg_match('/^(ab|a|abs|absent|ausente|aus|falta)$/i', $s)) return ['absent', null];
+    $sNum = str_replace(',', '.', $s);
+    if (!preg_match('/^-?\d+(\.\d+)?$/', $sNum)) return ['bad', null];
+    return ['num', round((float)$sNum, 2)];
 }
 
 // preview and commit run the SAME path — $commit is the only difference, so they can never disagree
@@ -656,34 +686,46 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
     $termId    = meOwn('exam_terms', $_POST['term_id'] ?? 0);
     $wantSub   = meOwn('subjects',   $_POST['subject_id'] ?? 0);
     $csv       = (string)($_POST['csv'] ?? '');
-    if (meTrim($csv) === '')     jsonErr('No score sheet was uploaded.');
-    if (strlen($csv) > 1048576)  jsonErr('That file is too big — import one section at a time.');
+    if (meTrim($csv) === '')     jsonErr('No se cargó ninguna hoja de calificaciones.');
+    if (strlen($csv) > 1048576)  jsonErr('El archivo es demasiado grande — importe una sección a la vez.');
 
     $term = $termId ? ormsTerm($termId) : null;
     $sec  = $sectionId ? meSection($sectionId) : null;
-    if (!$term || !$sec) jsonErr('Section or term not found.');
+    if (!$term || !$sec) jsonErr('No se encontró la sección o el período seleccionado.');
     $classId = (int)$sec['class_id']; $tYear = (int)$term['academic_year_id'];
 
     meLockGuard($term, $sectionId);                     // year / term / publish — hard stops
 
     // columns resolved server-side; nothing in the uploaded file can widen this
     $subjects = meSubjectCols($sectionId, $classId, $tYear, $isAdmin, $teacherId, $wantSub);
-    if (!$subjects) jsonErr('You have no subject assigned for this section, or the class has no marks configuration.');
+    if (!$subjects) jsonErr('No tiene materias asignadas en esta sección, o el grado no tiene materias configuradas.');
 
     $comps  = meComps($classId);        // scheme -> the file carries one column per component
     $issues = [];
     $denied = array_flip(meDenied($userId, $role, $sectionId, $termId,
                                   array_map(function ($s) { return (int)$s['id']; }, $subjects)));
     foreach ($subjects as $s) if (isset($denied[(int)$s['id']]))    // reported once per column, never per row
-        $issues[] = 'Column "' . $s['name'] . '": you are not allowed to enter marks for this subject — it was ignored.';
+        $issues[] = 'Columna "' . $s['name'] . '": usted no tiene permisos para calificar esta materia — fue omitida.';
     $mine = array_values(array_filter($subjects, function ($s) use ($denied) { return !isset($denied[(int)$s['id']]); }));
-    if (!$mine) jsonErr('You are not allowed to enter marks for any subject in this section right now.');
+    if (!$mine) jsonErr('No tiene permisos para calificar ninguna materia de esta sección en este momento.');
 
     // exactly the labels the download writes, so a round trip always matches
     $allow = $nm = [];
     foreach ($mine as $s) {
         $nm[(int)$s['id']] = $s['name'];
-        foreach (meSheetCols($s, $comps) as $c) $allow[meNorm($c['label'])] = $c;
+        foreach (meSheetCols($s, $comps) as $c) {
+            $allow[meNorm($c['label'])] = $c;
+            // Also allow bilingual variants (teoria/theory, practica/practical)
+            if ($c['part'] === 't') {
+                $allow[meNorm($s['name'] . ' teoria')] = $c;
+                $allow[meNorm($s['name'] . ' theory')] = $c;
+            } elseif ($c['part'] === 'p') {
+                $allow[meNorm($s['name'] . ' practica')] = $c;
+                $allow[meNorm($s['name'] . ' practical')] = $c;
+            } elseif ($c['part'] === '') {
+                $allow[meNorm($s['name'])] = $c;
+            }
+        }
     }
 
     // every subject the class teaches, so an unknown column is told apart from a forbidden one
@@ -695,12 +737,12 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
                    WHERE cs.class_id = ?" . $scK,
                   'i' . meSchoolT($scK), ...array_merge([$classId], meSchoolA($scK))) as $r) {
         $n = meNorm($r['name']);
-        $known[$n] = $known[$n . ' theory'] = $known[$n . ' practical'] = 1;
+        $known[$n] = $known[$n . ' teoria'] = $known[$n . ' theory'] = $known[$n . ' practica'] = $known[$n . ' practical'] = 1;
         foreach ($comps as $cp) $known[meNorm($r['name'] . ' — ' . $cp['name'])] = 1;
     }
     foreach ($mine as $s) {
         $n = meNorm($s['name']);
-        $ours[$n] = $ours[$n . ' theory'] = $ours[$n . ' practical'] = 1;
+        $ours[$n] = $ours[$n . ' teoria'] = $ours[$n . ' theory'] = $ours[$n . ' practica'] = $ours[$n . ' practical'] = 1;
         foreach ($comps as $cp) $ours[meNorm($s['name'] . ' — ' . $cp['name'])] = 1;
     }
 
@@ -713,31 +755,44 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
         if ($head === null) { $head = $row; continue; }
         $body[$i] = $row;
     }
-    if ($head === null)      jsonErr('That file has no header row.');
-    if (!$body)              jsonErr('That file has no data rows under the header.');
-    if (count($body) > 3000) jsonErr('Too many rows — import 3000 students or fewer at a time.');
+    if ($head === null)      jsonErr('El archivo no contiene fila de encabezados.');
+    if (!$body)              jsonErr('El archivo no contiene filas de datos debajo del encabezado.');
+    if (count($body) > 3000) jsonErr('Demasiadas filas — importe 3000 estudiantes o menos a la vez.');
 
     $admCol = -1; $map = $seen = [];
     foreach ($head as $ci => $h) {
         $n = meNorm($h);
         if ($n === '') continue;
-        if ($n === 'admission no' || $n === 'admissionno' || $n === 'admission number') { if ($admCol < 0) $admCol = $ci; continue; }
-        if ($n === 'roll no' || $n === 'roll' || $n === 'student name' || $n === 'name') continue;   // read-only helpers
+        if (in_array($n, [
+            'admission no', 'admissionno', 'admission number',
+            'matricula', 'numero de matricula', 'numero matricula', 'no matricula',
+            'codigo', 'id estudiante', 'identificacion', 'documento', 'documento identidad'
+        ], true)) {
+            if ($admCol < 0) $admCol = $ci;
+            continue;
+        }
+        if (in_array($n, [
+            'roll no', 'roll', 'student name', 'name',
+            'rollo', 'numero de rollo', 'numero rollo', 'no rollo', 'lista', 'orden',
+            'estudiante', 'nombre del estudiante', 'nombre estudiante', 'alumno', 'antiguo alumno', 'nombre', 'nombre completo'
+        ], true)) {
+            continue;   // read-only helpers
+        }
         if (!isset($allow[$n])) {
             $issues[] = !isset($known[$n])
-                ? 'Column "' . meTrim($h) . '" is not a subject in this class — it was ignored.'
+                ? 'Columna "' . meTrim($h) . '" no es una materia de esta clase — fue omitida.'
                 : (isset($ours[$n])
-                    ? 'Column "' . meTrim($h) . '" does not match this sheet — download a fresh score sheet and use its headers. It was ignored.'
-                    : 'Column "' . meTrim($h) . '": you are not allowed to enter marks for this subject — it was ignored.');
+                    ? 'Columna "' . meTrim($h) . '" no coincide con el formato de esta hoja — descargue una plantilla actualizada. Fue omitida.'
+                    : 'Columna "' . meTrim($h) . '": usted no tiene permisos para calificar esta materia — fue omitida.');
             continue;
         }
         $k = $allow[$n]['id'] . $allow[$n]['part'];
-        if (isset($seen[$k])) { $issues[] = 'Column "' . meTrim($h) . '" appears twice — only the first was used.'; continue; }
+        if (isset($seen[$k])) { $issues[] = 'Columna "' . meTrim($h) . '" aparece duplicada — solo se usó la primera.'; continue; }
         $seen[$k] = 1;
         $map[$ci] = $allow[$n];
     }
-    if ($admCol < 0) jsonErr('The header row needs an "Admission No" column — download a fresh score sheet and fill that one in.');
-    if (!$map)       jsonErr('No subject column in that file matches this class — download a fresh score sheet and fill that one in.');
+    if ($admCol < 0) jsonErr('La fila de encabezados debe incluir una columna "Matrícula" o "Admission No" — descargue la plantilla actualizada.');
+    if (!$map)       jsonErr('Ninguna columna de materias en el archivo coincide con este grado — descargue la plantilla actualizada.');
 
     // a scheme subject needs ALL its component columns — a missing one would silently wipe that score
     if ($comps) {
@@ -745,11 +800,11 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
         foreach ($map as $c) $got[(int)$c['id']] = ($got[(int)$c['id']] ?? 0) + 1;
         foreach ($got as $sid => $cnt) {
             if ($cnt >= $need) continue;
-            $issues[] = 'Subject "' . ($nm[$sid] ?? ('#' . $sid)) . '" is missing ' . ($need - $cnt)
-                      . ' component column(s) — download a fresh score sheet. Its columns were ignored.';
+            $issues[] = 'La materia "' . ($nm[$sid] ?? ('#' . $sid)) . '" necesita ' . ($need - $cnt)
+                      . ' columna(s) de componentes faltantes — descargue una plantilla actualizada.';
             foreach ($map as $ci => $c) if ((int)$c['id'] === $sid) unset($map[$ci]);
         }
-        if (!$map) jsonErr('No complete set of component columns in that file matches this class — download a fresh score sheet and fill that one in.');
+        if (!$map) jsonErr('El archivo no contiene las columnas completas de componentes para este grado — descargue la plantilla actualizada.');
     }
 
     // roster keyed by admission no, one query. status kept so "not active" gets its own message
@@ -762,15 +817,15 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
 
     $rows = []; $dup = []; $miss = []; $skipParse = 0; $matched = 0;
     foreach ($body as $i => $row) {
-        $at  = 'Row ' . ($i + 1);
+        $at  = 'Fila ' . ($i + 1);
         $adm = meTrim($row[$admCol] ?? '');
-        if ($adm === '')  { $issues[] = $at . ': no admission no — row skipped.'; $skipParse++; continue; }
+        if ($adm === '')  { $issues[] = $at . ': número de matrícula vacío — fila omitida.'; $skipParse++; continue; }
         $k = mb_strtolower($adm);
-        if (isset($dup[$k])) { $issues[] = $at . ': ' . $adm . ' is already in this file — only the first row was used.'; $skipParse++; continue; }
+        if (isset($dup[$k])) { $issues[] = $at . ': la matrícula ' . $adm . ' está repetida en el archivo — solo se procesó la primera.'; $skipParse++; continue; }
         $dup[$k] = 1;
         $st = $byAdm[$k] ?? null;
         if (!$st)                      { $miss[$k] = [$at, $adm]; $skipParse++; continue; }
-        if ($st['status'] !== 'Active') { $issues[] = $at . ': ' . $adm . ' is ' . $st['status'] . ' — only active students can be marked.'; $skipParse++; continue; }
+        if ($st['status'] !== 'Active') { $issues[] = $at . ': el estudiante ' . $adm . ' tiene estado ' . $st['status'] . ' — solo se pueden ingresar notas a estudiantes activos.'; $skipParse++; continue; }
         $stu = (int)$st['id'];
         $matched++;
 
@@ -794,8 +849,8 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
                     if ($cst === 'num')    $anyNum = true;
                     $cvals[$cid] = $cst === 'num' ? $cvl : null;
                 }
-                if ($badName !== '') { $issues[] = $who . ': ' . $badName . ' must be a number or AB.'; $skipParse++; continue; }
-                if ($cAbs && $anyNum) { $issues[] = $who . ': one component says absent and another has marks.'; $skipParse++; continue; }
+                if ($badName !== '') { $issues[] = $who . ': ' . $badName . ' debe ser un número o AB (ausente).'; $skipParse++; continue; }
+                if ($cAbs && $anyNum) { $issues[] = $who . ': un componente indica ausente y otro tiene calificación numérica.'; $skipParse++; continue; }
                 // nothing in the file and nothing stored (or a subject they don't take) is simply not a change
                 if (!$cAbs && !$anyNum && (!$takes || !$has)) continue;
                 $rows[] = ['student_id' => $stu, 'subject_id' => $sid, 'at' => $at,
@@ -805,7 +860,7 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
 
             if (empty($ctx['cfg'][$sid]['split'])) {
                 [$state, $val] = meCell($parts[''] ?? '');
-                if ($state === 'bad') { $issues[] = $who . ': "' . meTrim($parts[''] ?? '') . '" is not a number or AB.'; $skipParse++; continue; }
+                if ($state === 'bad') { $issues[] = $who . ': "' . meTrim($parts[''] ?? '') . '" no es un número válido ni AB (ausente).'; $skipParse++; continue; }
                 // blank/dash with nothing stored (or a subject they don't take) is simply not a change
                 if ($state === 'blank' && (!$takes || !$has)) continue;
                 $rows[] = ['student_id' => $stu, 'subject_id' => $sid, 'at' => $at,
@@ -815,9 +870,9 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
 
             [$ts, $tv] = meCell($parts['t'] ?? '');
             [$ps, $pv] = meCell($parts['p'] ?? '');
-            if ($ts === 'bad' || $ps === 'bad') { $issues[] = $who . ': theory and practical must each be a number or AB.'; $skipParse++; continue; }
+            if ($ts === 'bad' || $ps === 'bad') { $issues[] = $who . ': teoría y práctica deben ser un número o AB (ausente).'; $skipParse++; continue; }
             $abs = ($ts === 'absent' || $ps === 'absent');
-            if ($abs && ($ts === 'num' || $ps === 'num')) { $issues[] = $who . ': one box says absent and the other has marks.'; $skipParse++; continue; }
+            if ($abs && ($ts === 'num' || $ps === 'num')) { $issues[] = $who . ': una parte indica ausente y la otra tiene calificación numérica.'; $skipParse++; continue; }
             if (!$abs && $ts !== 'num' && $ps !== 'num' && (!$takes || !$has)) continue;
             $rows[] = ['student_id' => $stu, 'subject_id' => $sid, 'at' => $at,
                        'is_absent' => $abs ? 1 : 0, 'theory' => $tv, 'practical' => $pv];
@@ -835,8 +890,8 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
                       ...array_merge(array_values($vals), meSchoolA($scS))) as $r)
             $found[mb_strtolower($r['admission_no'])] = 1;
         foreach ($miss as $k => $m)
-            $issues[] = $m[0] . ': ' . (isset($found[$k]) ? $m[1] . ' is not in this section.'
-                                                          : 'admission no ' . $m[1] . ' was not found.');
+            $issues[] = $m[0] . ': ' . (isset($found[$k]) ? 'el estudiante con matrícula ' . $m[1] . ' no pertenece a esta sección.'
+                                                          : 'la matrícula ' . $m[1] . ' no fue encontrada en el sistema.');
     }
 
     $res     = mePersist($ctx, $rows, !$commit);          // dry on preview, same decisions either way
@@ -850,7 +905,8 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
         jsonOk(['added' => $res['added'], 'updated' => $res['updated'], 'cleared' => $res['cleared'],
                 'skipped' => $skipped, 'students' => $matched, 'changes' => $changes,
                 'issues' => $shown, 'more' => $more,
-                'message' => $changes . ' change' . ($changes === 1 ? '' : 's') . ' ready, ' . $skipped . ' skipped']);
+                'message' => $changes . ($changes === 1 ? ' calificación lista' : ' calificaciones listas') . ' para guardar'
+                           . ($skipped ? ', ' . $skipped . ' omitidas' : '')]);
     }
 
     // ONE log for the whole import, never one per mark
@@ -861,8 +917,8 @@ function meImportRun($commit, $userId, $username, $role, $isAdmin, $teacherId) {
 
     jsonOk(['imported' => $res['saved'], 'added' => $res['added'], 'updated' => $res['updated'],
             'cleared' => $res['cleared'], 'skipped' => $skipped, 'errors' => $shown, 'more' => $more,
-            'message' => $res['saved'] . ' mark' . ($res['saved'] === 1 ? '' : 's') . ' imported'
-                       . ($skipped ? ', ' . $skipped . ' skipped' : '')]);
+            'message' => $res['saved'] . ($res['saved'] === 1 ? ' nota importada' : ' notas importadas')
+                       . ($skipped ? ', ' . $skipped . ' omitidas' : '')]);
 }
 
 // Handle AJAX requests
@@ -1223,15 +1279,15 @@ if (isset($_GET['action'])) {
                 foreach ($subjects as $s) if ((int)($s['is_optional'] ?? 0) === 1) $optIds[] = (int)$s['id'];
                 $enrol = meEnrolMap($optIds, $tYear, $sectionId);
 
-                // comment lines stay comma-free so excel keeps them in one cell
-                $out = '# ORMS Score Sheet | ' . $sec['class_name'] . ' - ' . $sec['section_name']
-                     . ' | ' . $term['name'] . ' | Generated ' . date('Y-m-d') . "\r\n"
-                     . "# Enter marks in the subject columns. Use AB for absent. Leave blank to clear a mark.\r\n"
-                     . "# A dash means the student does not take that optional subject — leave it alone.\r\n"
-                     . "# Do not rename the Admission No column or the subject column headers.\r\n"
-                     . ($comps ? "# This class is marked by components - fill the raw score in every component column.\r\n" : '');
-                $out .= meCsvRow(array_merge(['Admission No', 'Roll No', 'Student Name'],
-                                             array_map(function ($c) { return $c['label']; }, $cols)));
+                // comment lines stay comma/semi-free so excel keeps them in one cell
+                $out = '# Hoja de Calificaciones ORMS | ' . $sec['class_name'] . ' - ' . $sec['section_name']
+                     . ' | ' . $term['name'] . ' | Generado: ' . date('Y-m-d') . "\r\n"
+                     . "# Ingrese las notas en las columnas de materias. Use AB o Ausente para ausencias. Deje en blanco para borrar.\r\n"
+                     . "# Un guion (-) indica que el estudiante no cursa esa materia optativa — no lo modifique.\r\n"
+                     . "# No modifique la columna Matricula ni los encabezados de las materias.\r\n"
+                     . ($comps ? "# Esta clase califica por componentes — ingrese la puntuacion en cada columna de componente.\r\n" : '');
+                $out .= meCsvRow(array_merge(['Matrícula', 'Rollo', 'Estudiante'],
+                                             array_map(function ($c) { return $c['label']; }, $cols)), ';');
 
                 foreach ($students as $st) {
                     $stu  = (int)$st['id'];
@@ -1242,11 +1298,11 @@ if (isset($_GET['action'])) {
                                 ? '-' : meSheetVal($marks[$stu . ':' . $c['id']] ?? null, $c['part'],
                                                    $cmk[$stu . ':' . $c['id']] ?? []);
                     }
-                    $out .= meCsvRow($line);
+                    $out .= meCsvRow($line, ';');
                 }
 
                 $slug = function ($s) { return trim(preg_replace('/[^A-Za-z0-9]+/', '-', (string)$s), '-'); };
-                $file = 'Score_Sheet_' . $slug($sec['class_name'] . '-' . $sec['section_name']) . '_' . $slug($term['name']) . '.csv';
+                $file = 'Hoja_Calificaciones_' . $slug($sec['class_name'] . '-' . $sec['section_name']) . '_' . $slug($term['name']) . '.csv';
 
                 header('Content-Type: text/csv; charset=utf-8');     // replaces the json header set above
                 header('Content-Disposition: attachment; filename="' . $file . '"');
@@ -1315,7 +1371,7 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
-    <link rel="stylesheet" href="styles.css?v=15.2">
+    <link rel="stylesheet" href="styles.css?v=15.3">
     <link rel="manifest" href="manifest.php">
     <meta name="theme-color" content="#001f3f">
     <link rel="apple-touch-icon" href="icon-192.png">
@@ -1457,8 +1513,8 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
     <div class="modal-overlay" id="marksModal">
         <div class="modal marks-modal" onclick="event.stopPropagation()">
             <div class="marks-modal-head">
-                <h3 id="marksTitle"><i class="fas fa-pen-to-square"></i> Enter Marks</h3>
-                <button class="close-btn" onclick="closeMarks()" title="Close"><i class="fas fa-times"></i></button>
+                <h3 id="marksTitle"><i class="fas fa-pen-to-square"></i> Calificaciones</h3>
+                <button class="close-btn" onclick="closeMarks()" title="Cerrar"><i class="fas fa-times"></i></button>
             </div>
 
             <!-- toolbar lives between head and body so it never fights the sticky thead -->
@@ -1485,8 +1541,8 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
             <div class="marks-modal-foot">
                 <div class="marks-footer-summary" id="marksSummary"></div>
                 <div class="btn-group-inline">
-                    <button class="btn btn-secondary" onclick="closeMarks()"><i class="fas fa-times"></i> Close</button>
-                    <button class="btn btn-success" id="saveBtn" onclick="saveMarks(this)"><i class="fas fa-save"></i> Save All</button>
+                    <button class="btn btn-secondary" onclick="closeMarks()"><i class="fas fa-times"></i> Cerrar</button>
+                    <button class="btn btn-success" id="saveBtn" onclick="saveMarks(this)"><i class="fas fa-save"></i> Guardar Todo</button>
                 </div>
             </div>
         </div>
@@ -1509,7 +1565,7 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
-    <script src="orms.js?v=2.5"></script>
+    <script src="orms.js?v=2.7"></script>
     <script>window.ORMS_CSRF = '<?php echo csrfToken(); ?>';</script>
 
     <script>
@@ -1801,43 +1857,43 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
         });
         var canImport = !GRID.locked && CAN_ADD;
         el('marksToolbar').innerHTML =
-            '<span><i class="fas fa-users"></i> <b>' + d.students.length + '</b> students</span>' +
-            '<span><i class="fas fa-table-cells"></i> <b id="tbEntered">0</b> / ' + cells + ' cells</span>' +
+            '<span><i class="fas fa-users"></i> <b>' + d.students.length + '</b> ' + (d.students.length === 1 ? 'estudiante' : 'estudiantes') + '</span>' +
+            '<span><i class="fas fa-table-cells"></i> <b id="tbEntered">0</b> / ' + cells + ' notas</span>' +
             chips +
             '<span class="marks-offline">' +
             '<button type="button" class="btn btn-secondary btn-sm" id="sheetDlBtn" onclick="sheetDownload(this)">' +
-            '<i class="fas fa-file-arrow-down"></i> Download Sheet</button>' +
+            '<i class="fas fa-file-arrow-down"></i> Descargar plantilla</button>' +
             (canImport ? '<button type="button" class="btn btn-secondary btn-sm" id="sheetImpBtn" onclick="sheetPick()">' +
-                         '<i class="fas fa-file-import"></i> Import Sheet</button>' : '') +
+                         '<i class="fas fa-file-import"></i> Importar calificaciones</button>' : '') +
             '</span>';
 
         el('sheetHelpText').textContent = canImport
-            ? 'Short on data? Download the score sheet, fill it in offline in Excel, then import it back — every mark is checked and previewed before anything is saved.'
-            : 'Download the score sheet for an offline copy of these marks — importing is closed while this sheet is locked.';
+            ? '¿Desea trabajar sin conexión? Descargue la plantilla de calificaciones, complétela en Excel e impórtela aquí. Podrá previsualizar los cambios antes de guardar.'
+            : 'Descargue la plantilla para una copia de respaldo — la importación está bloqueada mientras este período esté cerrado.';
         show('#sheetHelp', true);
 
         if (d.lock) el('marksLockText').textContent = d.lock;
         show('#marksLock', !!d.lock);
 
         // head: roll first, then student (css pins them in this order)
-        var head = '<th class="col-roll">Roll</th><th class="col-student">Student</th>';
+        var head = '<th class="col-roll">Rollo</th><th class="col-student">Estudiante</th>';
         var compHead = CPS.map(function (c) { return esc(c.name) + ' /' + num(c.max); }).join(' · ');
         d.subjects.forEach(function (s) {
             head += '<th class="col-subject"><i class="fas fa-book"></i> ' + esc(s.name) +
                     ' <span>/' + num(s.total) +
                     (s.split ? ' = T ' + num(s.theory) + ' + P ' + num(s.practical) : '') + '</span>' +
                     (s.scheme ? ' <span class="me-comp-head">' + compHead + '</span>' : '') +
-                    (s.optional ? ' <span class="perm-off"><i class="fas fa-circle-half-stroke"></i> ELECTIVE</span>' : '') +
+                    (s.optional ? ' <span class="perm-off"><i class="fas fa-circle-half-stroke"></i> ELECTIVA</span>' : '') +
                     // excluded subject is still graded and printed, it just never joins the total
-                    (s.excl ? ' <span class="perm-off"><i class="fas fa-ban"></i> NOT COUNTED</span>' : '') +
+                    (s.excl ? ' <span class="perm-off"><i class="fas fa-ban"></i> NO CUENTA</span>' : '') +
                     '</th>';
         });
         el('marksHead').innerHTML = head;
 
         if (!d.students.length) {
             el('marksRows').innerHTML = '<tr><td class="col-roll">—</td><td class="col-student" colspan="' + (d.subjects.length + 1) + '">' +
-                '<div class="orms-empty"><i class="fas fa-user-slash"></i><h4>No active students</h4>' +
-                '<p>This section has no active students to grade.</p></div></td></tr>';
+                '<div class="orms-empty"><i class="fas fa-user-slash"></i><h4>No hay estudiantes activos</h4>' +
+                '<p>Esta sección no tiene estudiantes activos para calificar.</p></div></td></tr>';
             el('marksSummary').innerHTML = '';
             show('#saveBtn', false);
             return;
@@ -2279,7 +2335,7 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
         f.term_id.value    = s.term_id;
         f.subject_id.value = s.subject_id;
         ORMS.bar.start();
-        ORMS.busy(btn, true, 'Preparing…');
+        ORMS.busy(btn, true, 'Preparando…');
         f.submit();
         // an attachment never fires the frame's load event, so a timer is the only honest release
         setTimeout(function () { ORMS.busy(btn, false); ORMS.bar.done(); }, 1200);
@@ -2291,14 +2347,14 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
         try { t = String((this.contentDocument && this.contentDocument.body && this.contentDocument.body.textContent) || '').trim(); } catch (e) {}
         if (t.charAt(0) !== '{') return;
         try { r = JSON.parse(t); } catch (e) {}
-        ORMS.err(r.message || 'Could not build the score sheet.');
+        ORMS.err(r.message || 'No se pudo generar la plantilla.');
     });
 
     el('sheetCsvInput').addEventListener('change', function () {
         var input = this, file = input.files && input.files[0];
         if (!file || !GRID) return;
         var reader = new FileReader();
-        reader.onerror = function () { input.value = ''; ORMS.err('That file could not be read.'); };
+        reader.onerror = function () { input.value = ''; ORMS.err('No se pudo leer el archivo.'); };
         reader.onload = function (ev) {
             input.value = '';                                    // same file twice must fire again
             var text = String(ev.target.result || '');
@@ -2307,7 +2363,7 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
                 var f0 = String((r && r[0]) || '').trim();
                 return f0.charAt(0) !== '#' && (r || []).join('').trim() !== '';
             });
-            if (data.length < 2) { ORMS.err('That file has no data rows under the header row.'); return; }
+            if (data.length < 2) { ORMS.err('El archivo no contiene filas de datos debajo del encabezado.'); return; }
             sheetPreview(text);
         };
         reader.readAsText(file);
@@ -2316,65 +2372,65 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
     function sheetIssues(list, more) {
         if (!list || !list.length) return '';
         var h = '<div class="about-table-wrapper sheet-issues"><table class="about-roles-table"><thead><tr>' +
-                '<th><i class="fas fa-list-ol"></i> #</th><th><i class="fas fa-circle-exclamation"></i> Problem</th>' +
+                '<th><i class="fas fa-list-ol"></i> #</th><th><i class="fas fa-circle-exclamation"></i> Detalle</th>' +
                 '</tr></thead><tbody>';
         list.forEach(function (m, i) { h += '<tr><td>' + (i + 1) + '</td><td>' + esc(m) + '</td></tr>'; });
         return h + '</tbody></table></div>' +
-               (more ? '<p><i class="fas fa-ellipsis"></i> and ' + more + ' more — see the browser console.</p>' : '');
+               (more ? '<p><i class="fas fa-ellipsis"></i> y ' + more + ' más — verifique en la consola del navegador.</p>' : '');
     }
 
     function sheetCounts(r) {
         return '<div class="sheet-counts">' +
-               (r.students === undefined ? '' : '<span><i class="fas fa-users"></i> Students <b>' + r.students + '</b></span>') +
-               '<span><i class="fas fa-plus"></i> Add <b>' + r.added + '</b></span>' +
-               '<span><i class="fas fa-pen"></i> Update <b>' + r.updated + '</b></span>' +
-               '<span><i class="fas fa-eraser"></i> Clear <b>' + r.cleared + '</b></span>' +
-               '<span><i class="fas fa-forward"></i> Skipped <b>' + r.skipped + '</b></span></div>';
+               (r.students === undefined ? '' : '<span><i class="fas fa-users"></i> Estudiantes <b>' + r.students + '</b></span>') +
+               '<span><i class="fas fa-plus"></i> Nuevos <b>' + r.added + '</b></span>' +
+               '<span><i class="fas fa-pen"></i> Actualizados <b>' + r.updated + '</b></span>' +
+               '<span><i class="fas fa-eraser"></i> Borrados <b>' + r.cleared + '</b></span>' +
+               '<span><i class="fas fa-forward"></i> Omitidos <b>' + r.skipped + '</b></span></div>';
     }
 
     // step 1 — nothing is written, the teacher sees exactly what would change
     function sheetPreview(text) {
         ORMS.post('importMarksPreview', $.extend(sheetScope(), { csv: text }),
-                  { btn: '#sheetImpBtn', busyLabel: 'Checking…' })
+                  { btn: '#sheetImpBtn', busyLabel: 'Verificando…' })
             .done(function (res) {
-                if (!res || !res.success) { ORMS.err((res && res.message) || 'Could not read that score sheet.'); return; }
+                if (!res || !res.success) { ORMS.err((res && res.message) || 'No se pudo leer la plantilla.'); return; }
                 if (res.issues && res.issues.length) console.warn('Score sheet problems:', res.issues);
                 if (!res.changes) {
-                    Swal.fire({ icon: 'info', title: 'Nothing to change', width: 640,
+                    Swal.fire({ icon: 'info', title: 'Sin cambios pendientes', width: 640,
                                 html: sheetCounts(res) + sheetIssues(res.issues, res.more) });
                     return;
                 }
                 Swal.fire({
                     icon: res.skipped ? 'warning' : 'question',
-                    title: res.changes + ' change' + (res.changes === 1 ? '' : 's') + ' ready',
+                    title: res.changes + (res.changes === 1 ? ' calificación lista' : ' calificaciones listas') + ' para importar',
                     html: sheetCounts(res) +
-                          (GRID && GRID.dirty ? '<p><i class="fas fa-triangle-exclamation"></i> Unsaved marks in this sheet will be discarded.</p>' : '') +
+                          (GRID && GRID.dirty ? '<p><i class="fas fa-triangle-exclamation"></i> Las notas no guardadas en la cuadrícula serán reemplazadas.</p>' : '') +
                           sheetIssues(res.issues, res.more),
                     width: 640, showCancelButton: true,
-                    confirmButtonText: '<i class="fas fa-file-import"></i> Import',
-                    cancelButtonText: '<i class="fas fa-times"></i> Cancel'
+                    confirmButtonText: '<i class="fas fa-file-import"></i> Importar',
+                    cancelButtonText: '<i class="fas fa-times"></i> Cancelar'
                 }).then(function (x) { if (x.isConfirmed) sheetCommit(text); });
             })
-            .fail(function (msg) { ORMS.err(msg || 'Connection error'); });
+            .fail(function (msg) { ORMS.err(msg || 'Error de conexión'); });
     }
 
     // step 2 — the server re-validates everything, the preview result is never trusted back
     function sheetCommit(text) {
         var s = sheetScope();
-        ORMS.post('importMarks', $.extend({}, s, { csv: text }), { btn: '#sheetImpBtn', busyLabel: 'Importing…' })
+        ORMS.post('importMarks', $.extend({}, s, { csv: text }), { btn: '#sheetImpBtn', busyLabel: 'Importando…' })
             .done(function (res) {
-                if (!res || !res.success) { ORMS.err((res && res.message) || 'Import failed'); return; }
+                if (!res || !res.success) { ORMS.err((res && res.message) || 'Error al importar'); return; }
                 if (res.errors && res.errors.length) console.warn('Score sheet skipped:', res.errors);
                 if (GRID) GRID.dirty = false;              // the refetch below is the truth now
                 openMarks(s.section_id, s.subject_id);      // refetch -> cells, summary and completion bars
                 loadAssignments();
                 Swal.fire({
                     icon: res.skipped ? 'warning' : 'success',
-                    title: res.imported + ' marks imported, ' + res.skipped + ' skipped',
+                    title: res.imported + ' notas importadas' + (res.skipped ? ', ' + res.skipped + ' omitidas' : ''),
                     html: sheetIssues(res.errors, res.more) + apprNote(res), width: 640
                 });
             })
-            .fail(function (msg) { ORMS.err(msg || 'Connection error'); });
+            .fail(function (msg) { ORMS.err(msg || 'Error de conexión'); });
     }
 
     // ---------- close guard ----------
@@ -2382,11 +2438,11 @@ $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APO
     function closeMarks(force) {
         if (!force && GRID && GRID.dirty) {
             Swal.fire({
-                icon: 'warning', title: 'Discard unsaved marks?',
-                text: 'Changes in this sheet have not been saved yet.',
+                icon: 'warning', title: '¿Descartar notas sin guardar?',
+                text: 'Los cambios en esta hoja no han sido guardados todavía.',
                 showCancelButton: true, confirmButtonColor: '#ea4335',
-                confirmButtonText: '<i class="fas fa-times"></i> Discard',
-                cancelButtonText: '<i class="fas fa-arrow-left"></i> Keep editing'
+                confirmButtonText: '<i class="fas fa-times"></i> Descartar',
+                cancelButtonText: '<i class="fas fa-arrow-left"></i> Seguir editando'
             }).then(function (r) { if (r.isConfirmed) closeMarks(true); });
             return;
         }

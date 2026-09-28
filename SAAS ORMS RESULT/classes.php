@@ -539,7 +539,7 @@ foreach ($gsList as $g) if ((int)$g['id'] === $defSetId) { $defSetName = (string
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
-    <link rel="stylesheet" href="styles.css?v=15.2">
+    <link rel="stylesheet" href="styles.css?v=15.3">
     <link rel="manifest" href="manifest.php">
     <meta name="theme-color" content="#001f3f">
     <link rel="apple-touch-icon" href="icon-192.png">
@@ -575,9 +575,9 @@ foreach ($gsList as $g) if ((int)$g['id'] === $defSetId) { $defSetName = (string
                     <div class="section-header">
                         <h2><i class="fas fa-table"></i> Classes</h2>
                         <div class="btn-group-inline">
-                            <button class="btn btn-primary" id="btnRefreshClasses"><i class="fas fa-sync"></i> Refresh</button>
+                            <button class="btn btn-primary" id="btnRefreshClasses"><i class="fas fa-sync"></i> Actualizar</button>
                             <?php if (can('classes', 'a')): ?>
-                            <button class="btn btn-success" id="btnAddClass"><i class="fas fa-plus"></i> Add Class</button>
+                            <button class="btn btn-success" id="btnAddClass"><i class="fas fa-plus"></i> Añadir Grado</button>
                             <button class="btn btn-secondary" id="btnClassTemplate"><i class="fas fa-download"></i> Plantilla</button>
                             <button class="btn btn-secondary" id="btnImportClasses"><i class="fas fa-file-import"></i> Importar CSV</button>
                             <?php endif; ?>
@@ -858,7 +858,7 @@ foreach ($gsList as $g) if ((int)$g['id'] === $defSetId) { $defSetName = (string
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
-    <script src="orms.js?v=2.6"></script>
+    <script src="orms.js?v=2.7"></script>
     <script>window.ORMS_CSRF = '<?= csrfToken() ?>';</script>
 
     <script>
@@ -1223,9 +1223,16 @@ foreach ($gsList as $g) if ((int)$g['id'] === $defSetId) { $defSetName = (string
     function closeModal(sel) { $(sel).removeClass('active'); }
 
     // ---------- csv template + import ----------
-    var CLS_CSV_HEAD_ES = ['grado', 'nivel', 'orden', 'secciones'];
-    var CLS_CSV_HEAD_EN = ['class', 'level', 'sort_order', 'sections'];
+    var CLS_CSV_HEAD_ES = ['Grado', 'Nivel', 'Orden', 'Secciones'];
+    var CLS_CSV_HEAD_EN = ['Class', 'Level', 'Sort Order', 'Sections'];
     var CLS_CSV_HEAD = CLS_CSV_HEAD_ES;
+
+    var CLS_SYNONYMS = [
+        ['grado', 'clase', 'curso', 'nombre', 'nombre_grado', 'nombre_de_grado', 'class', 'grade'],
+        ['nivel', 'nivel_numerico', 'level', 'numeric_level'],
+        ['orden', 'orden_clasificacion', 'sort_order', 'order'],
+        ['secciones', 'seccion', 'grupos', 'grupo', 'sections', 'section']
+    ];
 
     function clsCleanHead(s) {
         return String(s || '').trim().toLowerCase()
@@ -1236,18 +1243,22 @@ foreach ($gsList as $g) if ((int)$g['id'] === $defSetId) { $defSetName = (string
     function clsHeaderMatches(head) {
         if (!head || !head.length) return false;
         var hClean = head.map(clsCleanHead);
+        if (hClean.length !== 4) return false;
         var esClean = CLS_CSV_HEAD_ES.map(clsCleanHead);
         var enClean = CLS_CSV_HEAD_EN.map(clsCleanHead);
-        var altClean = ['clase', 'nivel', 'orden', 'secciones'].map(clsCleanHead);
-        if (hClean.length !== esClean.length) return false;
-        return (hClean.join('|') === esClean.join('|')) || (hClean.join('|') === enClean.join('|')) || (hClean.join('|') === altClean.join('|'));
+        if (hClean.join('|') === esClean.join('|') || hClean.join('|') === enClean.join('|')) return true;
+        for (var c = 0; c < 4; c++) {
+            if (CLS_SYNONYMS[c].indexOf(hClean[c]) === -1) return false;
+        }
+        return true;
     }
 
     $('#btnClassTemplate').on('click', function() {
         ORMS.downloadCSV('plantilla_importar_grados.csv', [
             CLS_CSV_HEAD_ES,
-            ['Grado 1', '1', '1', 'A | B'],
-            ['Grado 2', '2', '2', 'A | B | C']
+            ['Grado 1', '1', '1', '1-A | 1-B'],
+            ['Grado 2', '2', '2', '2-A | 2-B | 2-C'],
+            ['Grado 3', '3', '3', '3-A | 3-B']
         ]);
         ORMS.ok('Plantilla descargada con éxito');
     });
