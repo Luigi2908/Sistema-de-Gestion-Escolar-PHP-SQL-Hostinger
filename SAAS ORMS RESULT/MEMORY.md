@@ -1065,6 +1065,22 @@ Housekeeping: the three `.bat` files and `saas-requirements.md` were deleted at 
   - **Classes & Sections:** `CLS_CSV_HEAD_ES` & `CLS_SYNONYMS` for 4 columns (`plantilla_importar_grados.csv`).
   - **Marks Entry (Offline Score Sheet):** `Hoja_Calificaciones_...csv` generated with Spanish headers (`Matrícula`, `Rollo`, `Estudiante`, subject labels), `;` delimiter and UTF-8 BOM. `meImportRun` flexibly accepts Spanish terms (`matricula`, `codigo`, `rollo`, `estudiante`, `teoria`, `practica`, etc.) alongside English (`admission no`, `roll`, `student name`, `theory`, `practical`). `meCell` supports decimal commas (e.g. `85,5`) and Spanish absent strings (`ausente`, `aus`, `falta`).
 - **Cache-Buster:** Bumped to **`styles.css?v=15.3`** and **`orms.js?v=2.7`**.
+ 
+---
+
+## 16. Fee & Attendance Notifications (WhatsApp & Email) in Spanish (2026-09-28)
+
+- **WhatsApp Reminders (`fees.php` & `attendance.php`):**
+  - Messages updated to professional, simple, direct Spanish:
+    - **Tarifas:** *"Estimado(a) acudiente, cordial saludo de [Colegio]. Le recordamos de manera atenta que el estudiante [Nombre] ([Curso]) presenta a la fecha un saldo pendiente de [Saldo]. Agradecemos gestionar el pago a la mayor brevedad. Si ya lo realizó, por favor haga caso omiso a este mensaje. ¡Muchas gracias!"*
+    - **Asistencia:** Notificación clara y formal de inasistencia / retardo con los datos del estudiante y fecha.
+  - Number formatting `waPhone(p)`: Defaults country code `WA_CC` to `57` (Colombia / Latinoamérica) and automatically prepends `57` to 10-digit mobile numbers (e.g. `3105696435` -> `573105696435`), ensuring WhatsApp opens directly on both mobile and web.
+- **Email Reminders (`fees.php`):**
+  - Replaced English template with an elegant, responsive HTML card layout in Spanish with institutional branding, highlight box for pending balance, and polite payment instructions.
+  - Backend delivery: First attempts SMTP via `sendEmail()`. If SMTP is unconfigured or returns disabled, automatically falls back to native PHP `mail()` with UTF-8 HTML headers.
+  - Client-side fallback: If server-side sending is unavailable, SweetAlert displays an informative dialog offering to open the client's local mail application (`mailto:`) with recipient, subject, and pre-filled Spanish message.
+- **UI Localization (`fees.php`):**
+  - Localized DataTables columns (*N° Admisión, Estudiante, Grado – Sección, Cobrado, Pagado, Saldo, Retención, Acciones*), tooltips, KPI cards (*Cobrado Total, Total Recibido, Pendiente por Cobrar, Estudiantes con Deuda*), filters, and Printable Challan / Account Statement.
 
 ---
 
