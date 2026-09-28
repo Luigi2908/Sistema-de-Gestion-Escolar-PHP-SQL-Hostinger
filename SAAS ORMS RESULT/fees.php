@@ -759,42 +759,32 @@ if ($action !== '') {
                     . "Agradecemos gestionar el pago a la mayor brevedad. Si ya realizó este pago, por favor haga caso omiso a este mensaje.\n\n"
                     . "Atentamente,\n" . ($schName !== '' ? $schName : $branding['site_name']);
 
-                // Intentar envío vía SMTP
-                $m = sendEmail($gm, $subject, $html);
+                $smtpEnabled = (getSetting('smtp_enabled', '0') === '1');
+                $m = ['success' => false, 'message' => 'El servidor no tiene configurado el servicio de correo SMTP.'];
 
-                // Si SMTP no está configurado o falló, intentar fallback a mail() nativo de PHP
-                if (!$m['success']) {
-                    $fromEmail = getSetting('smtp_from_email', '');
-                    if (empty($fromEmail)) {
-                        $host = $_SERVER['HTTP_HOST'] ?? 'sistemagestionescolar.ceie.website';
-                        $host = preg_replace('/:[0-9]+$/', '', $host);
-                        $fromEmail = 'no-reply@' . $host;
-                    }
-                    $fromName = getSetting('smtp_from_name', ($schName !== '' ? $schName : $branding['site_name']));
-                    $headers = [
-                        'MIME-Version: 1.0',
-                        'Content-Type: text/html; charset=UTF-8',
-                        'From: =?UTF-8?B?' . base64_encode($fromName) . '?= <' . $fromEmail . '>',
-                        'Reply-To: ' . $fromEmail,
-                        'X-Mailer: PHP/' . phpversion()
-                    ];
-                    $sent = @mail($gm, '=?UTF-8?B?' . base64_encode($subject) . '?=', $html, implode("\r\n", $headers));
-                    if ($sent) {
-                        $m = ['success' => true, 'message' => 'Correo enviado exitosamente'];
-                    }
+                if ($smtpEnabled) {
+                    $m = sendEmail($gm, $subject, $html);
                 }
 
                 if ($m['success']) {
                     logActivity($user_id, $username, 'Recordatorio de tarifa enviado', $st['full_name'] . ' — ' . ormsMoney($bal) . " enviado a $gm");
-                    jsonOk(['message' => 'Recordatorio enviado exitosamente por correo a ' . $gm]);
+                    jsonOk([
+                        'sent' => true,
+                        'message' => 'Recordatorio enviado exitosamente por correo a ' . $gm
+                    ]);
                 } else {
+                    $gmailUrl = 'https://mail.google.com/mail/?view=cm&fs=1&to=' . rawurlencode($gm) . '&su=' . rawurlencode($subject) . '&body=' . rawurlencode($plain);
                     $mailtoUrl = 'mailto:' . rawurlencode($gm) . '?subject=' . rawurlencode($subject) . '&body=' . rawurlencode($plain);
+
                     jsonOk([
                         'sent' => false,
-                        'smtp_missing' => true,
+                        'smtp_missing' => !$smtpEnabled,
+                        'student_name' => $st['full_name'],
                         'guardian_email' => $gm,
-                        'mailto' => $mailtoUrl,
-                        'message' => 'El servidor no tiene configurado el servicio de correo SMTP.'
+                        'balance' => $formattedBal,
+                        'gmail_url' => $gmailUrl,
+                        'mailto_url' => $mailtoUrl,
+                        'message' => $smtpEnabled ? ('Error de envío SMTP: ' . ($m['message'] ?? 'Fallo de autenticación')) : 'El servidor aún no tiene configurado el servicio de correo SMTP.'
                     ]);
                 }
             }
@@ -1927,25 +1917,41 @@ foreach ($years as $y) if ((int)$y['id'] === $defYear) { $yearName = $y['name'];
         if (!r) return;
         ORMS.post('emailFeeReminder', { student_id: id, year_id: yearId() }, { btn: btn, busyLabel: ' ', verb: 'Enviando…' })
             .done(function (res) {
-                if (res.success && res.sent !== false) {
+                if (res.success && res.sent === true) {
                     ORMS.ok(res.message || ('Recordatorio enviado exitosamente a ' + (r.gmail || 'correo')));
-                } else if (res.mailto) {
+                } else if (res.gmail_url || res.mailto_url) {
+                    var studentName = res.student_name || r.name;
+                    var guardianEmail = res.guardian_email || r.gmail;
+                    var balText = res.balance || r.balance_f;
                     Swal.fire({
                         icon: 'info',
-                        title: 'Servicio de correo SMTP',
-                        html: '<p style="font-size:14px;color:#475569;margin-bottom:12px;">El servidor aún no tiene activado el envío automático de correos (se puede activar en <b>Sistema &rarr; Configuración SMTP</b>).</p>' +
-                              '<p style="font-size:14px;color:#1e293b;font-weight:500;">¿Deseas abrir tu cliente de correo (Gmail, Outlook, etc.) para enviar la notificación en español ya redactada a <b>' + ORMS.esc(r.gmail) + '</b>?</p>',
+                        title: 'Enviar Recordatorio por Correo',
+                        html: '<div style="text-align:left;font-size:14px;color:#334155;line-height:1.6;">' +
+                              '<div style="background:#f8fafc;padding:12px 16px;border-radius:6px;border:1px solid #e2e8f0;margin-bottom:14px;">' +
+                              '<div><b>Estudiante:</b> ' + ORMS.esc(studentName) + '</div>' +
+                              '<div><b>Destinatario:</b> <span style="color:#001f3f;font-weight:600;">' + ORMS.esc(guardianEmail) + '</span></div>' +
+                              '<div><b>Saldo pendiente:</b> <span style="color:#b91c1c;font-weight:bold;">' + ORMS.esc(balText) + '</span></div>' +
+                              '</div>' +
+                              '<p style="font-size:13px;color:#64748b;margin-bottom:16px;">' +
+                              (res.message || 'El servidor aún no tiene activado el servicio automático de correo SMTP.') + '<br>' +
+                              'Puedes enviar la notificación redactada en español directamente usando una de las siguientes opciones:' +
+                              '</p>' +
+                              '<div style="display:flex;flex-direction:column;gap:10px;">' +
+                              '<a href="' + res.gmail_url + '" target="_blank" rel="noopener" class="swal2-confirm swal2-styled" style="display:flex;align-items:center;justify-content:center;gap:8px;background:#ea4335;color:#fff;text-decoration:none;padding:11px 16px;border-radius:6px;font-weight:600;font-size:14px;margin:0;">' +
+                              '<i class="fa-brands fa-google"></i> Abrir y Enviar con Gmail Web</a>' +
+                              '<a href="' + res.mailto_url + '" class="swal2-confirm swal2-styled" style="display:flex;align-items:center;justify-content:center;gap:8px;background:#001f3f;color:#fff;text-decoration:none;padding:11px 16px;border-radius:6px;font-weight:600;font-size:14px;margin:0;">' +
+                              '<i class="fas fa-envelope"></i> Abrir en Outlook / App de Correo</a>' +
+                              '</div>' +
+                              '<div style="margin-top:16px;text-align:center;">' +
+                              '<a href="smtp_setup.php" target="_blank" style="color:#0074D9;font-size:12px;text-decoration:underline;"><i class="fas fa-cog"></i> Configurar SMTP para envío automático de fondo</a>' +
+                              '</div>' +
+                              '</div>',
+                        showConfirmButton: false,
                         showCancelButton: true,
-                        confirmButtonText: '<i class="fas fa-envelope-open-text"></i> Abrir cliente de correo',
-                        cancelButtonText: 'Cancelar',
-                        confirmButtonColor: '#001f3f'
-                    }).then(function (x) {
-                        if (x.isConfirmed) {
-                            window.location.href = res.mailto;
-                        }
+                        cancelButtonText: 'Cerrar'
                     });
                 } else {
-                    ORMS.err(res.message || 'Error al enviar el correo');
+                    ORMS.err(res.message || 'Error al procesar el envío de correo');
                 }
             })
             .fail(function (m) { ORMS.err(m); });
