@@ -305,7 +305,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <title>Login - <?php echo htmlspecialchars($branding['site_name']); ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="styles.css?v=15.2">
-    <meta name="deploy-test" content="DEPLOY_VERIFIED_ROOT">
     <link rel="preload" as="image" href="icon-192.png">
     <link rel="manifest" href="manifest.php">
     <meta name="theme-color" content="#001f3f">
