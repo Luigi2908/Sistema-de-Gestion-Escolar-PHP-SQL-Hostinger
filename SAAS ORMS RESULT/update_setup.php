@@ -1402,8 +1402,8 @@ function applyUpdates(mysqli $conn, ?callable $log = null): void {
 
     // the receipt points back at the invoice that produced it (manual receipts keep NULL)
     addColumnIfMissing($conn, 'subscription_payments', 'invoice_id', 'INT DEFAULT NULL AFTER subscription_id', $log);
-    // the currency THIS tenant is billed in. NULL = the platform default, which is what every
-    // existing school keeps — nobody's price changes because of a migration.
+    addColumnIfMissing($conn, 'schools', 'logo', "VARCHAR(255) DEFAULT NULL AFTER code", $log);
+    addColumnIfMissing($conn, 'schools', 'trial_ends_at', "DATE DEFAULT NULL AFTER plan_id", $log);
     addColumnIfMissing($conn, 'schools', 'billing_currency', "VARCHAR(10) DEFAULT NULL AFTER plan_id", $log);
 
     // ---------------------------------------------------------------- 6a. roles + permission matrix

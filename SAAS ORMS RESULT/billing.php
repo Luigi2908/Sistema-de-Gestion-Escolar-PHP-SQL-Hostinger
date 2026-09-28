@@ -25,6 +25,7 @@ $school_id    = sid();
 function bilReady(): bool {
     static $ok = null;
     if ($ok === null) {
+        if (function_exists('ormsEnsureSchoolColumns')) ormsEnsureSchoolColumns();
         try { qVal("SELECT id FROM billing_invoices LIMIT 1"); $ok = true; }
         catch (Throwable $e) { $ok = false; }
     }
