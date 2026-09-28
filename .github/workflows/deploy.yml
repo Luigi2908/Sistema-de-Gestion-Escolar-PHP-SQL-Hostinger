@@ -1,0 +1,43 @@
+name: Despliegue Automático a Hostinger
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'SAAS ORMS RESULT/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Sincronizar archivos con Hostinger
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código del repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Desplegar archivos por FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: ${{ secrets.FTP_PORT || 21 }}
+          protocol: ftps
+          security: loose
+          local-dir: './SAAS ORMS RESULT/'
+          server-dir: ${{ secrets.FTP_SERVER_DIR || './public_html/' }}
+          exclude: |
+            **/.git*
+            **/.git*/**
+            config.php
+            uploads/**
+            error_log.txt
+            *.log
+            *.sql
+            MEMORY.md
+            requirement.md
+            docs/**
