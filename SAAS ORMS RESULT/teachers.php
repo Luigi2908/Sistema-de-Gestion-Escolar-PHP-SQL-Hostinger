@@ -788,7 +788,7 @@ catch (Throwable $e) { $tchSubjects = []; }
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
-    <link rel="stylesheet" href="styles.css?v=15.2">
+    <link rel="stylesheet" href="styles.css?v=15.3">
     <link rel="manifest" href="manifest.php">
     <meta name="theme-color" content="#001f3f">
     <link rel="apple-touch-icon" href="icon-192.png">
@@ -1102,7 +1102,7 @@ catch (Throwable $e) { $tchSubjects = []; }
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
-    <script src="orms.js?v=2.6"></script>
+    <script src="orms.js?v=2.7"></script>
     <script>window.ORMS_CSRF = '<?= csrfToken() ?>';</script>
 
     <script>
@@ -1604,14 +1604,28 @@ catch (Throwable $e) { $tchSubjects = []; }
 
         // ---------- csv template + import ----------
         var TCH_CSV_HEAD_ES = [
-            'nombre_completo', 'numero_empleado', 'usuario', 'correo', 'telefono',
-            'titulo_academico', 'cargo', 'documento_identidad', 'fecha_ingreso',
-            'contacto_emergencia', 'observaciones'
+            'Nombre Completo', 'Numero Empleado', 'Usuario', 'Correo', 'Telefono',
+            'Titulo Academico', 'Cargo', 'Documento Identidad', 'Fecha Ingreso',
+            'Contacto Emergencia', 'Observaciones'
         ];
         var TCH_CSV_HEAD_EN = [
             'full_name', 'employee_no', 'username', 'email', 'phone',
             'qualification', 'designation', 'national_id', 'joining_date',
             'emergency_contact', 'remarks'
+        ];
+
+        var TCH_SYNONYMS = [
+            ['nombre_completo', 'nombre', 'nombres', 'docente', 'profesor', 'full_name', 'name'],
+            ['numero_empleado', 'num_empleado', 'codigo', 'codigo_empleado', 'legajo', 'employee_no'],
+            ['usuario', 'nombre_usuario', 'username', 'user'],
+            ['correo', 'correo_electronico', 'email', 'e_mail'],
+            ['telefono', 'celular', 'movil', 'tel', 'phone'],
+            ['titulo_academico', 'titulo', 'profesion', 'estudios', 'qualification'],
+            ['cargo', 'designation', 'puesto', 'rol'],
+            ['documento_identidad', 'documento', 'cedula', 'dni', 'identificacion', 'national_id'],
+            ['fecha_ingreso', 'fecha_de_ingreso', 'fecha_inicio', 'joining_date'],
+            ['contacto_emergencia', 'contacto_de_emergencia', 'telefono_emergencia', 'emergency_contact'],
+            ['observaciones', 'observacion', 'notas', 'nota', 'remarks']
         ];
 
         function tchCleanHead(s) {
@@ -1623,10 +1637,14 @@ catch (Throwable $e) { $tchSubjects = []; }
         function tchHeaderMatches(head) {
             if (!head || !head.length) return false;
             var hClean = head.map(tchCleanHead);
+            if (hClean.length !== 11) return false;
             var esClean = TCH_CSV_HEAD_ES.map(tchCleanHead);
             var enClean = TCH_CSV_HEAD_EN.map(tchCleanHead);
-            if (hClean.length !== esClean.length) return false;
-            return (hClean.join('|') === esClean.join('|')) || (hClean.join('|') === enClean.join('|'));
+            if (hClean.join('|') === esClean.join('|') || hClean.join('|') === enClean.join('|')) return true;
+            for (var c = 0; c < 11; c++) {
+                if (TCH_SYNONYMS[c].indexOf(hClean[c]) === -1) return false;
+            }
+            return true;
         }
 
         function tchTemplate() {
