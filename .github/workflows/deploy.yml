@@ -27,8 +27,10 @@ jobs:
 
       - name: Inspeccionar carpetas en Hostinger
         run: |
-          echo "=== Listado de carpetas en la raiz del FTP ==="
+          echo "=== Directorio actual FTP ==="
           curl -s -k --ftp-ssl -u "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" "ftp://${{ env.FTP_CLEAN_SERVER }}:21/" || true
+          echo "=== Directorio padre (..) ==="
+          curl -s -k --ftp-ssl -u "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" "ftp://${{ env.FTP_CLEAN_SERVER }}:21/../" || true
 
       - name: Desplegar archivos por FTPS
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
