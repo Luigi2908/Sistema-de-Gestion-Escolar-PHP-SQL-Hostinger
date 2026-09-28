@@ -1392,7 +1392,7 @@ if (!$openTermId && $terms) $openTermId = (int)$terms[0]['id'];
     });
 
     // ==================== daily register ====================
-    var WA_CC = <?php echo json_encode((string)getSetting('whatsapp_country_code', '92')); ?>;
+    var WA_CC = <?php echo json_encode((string)getSetting('whatsapp_country_code', '57')); ?>;
     var DAILY = [];            // [{id, roll, name, st, r}]
     var DAILY_CAN = false;
 
@@ -1534,7 +1534,9 @@ if (!$openTermId && $terms) $openTermId = (int)$terms[0]['id'];
     function waPhone(p) {
         var d = String(p || '').replace(/\D/g, '');
         if (!d) return '';
-        if (d.charAt(0) === '0') d = WA_CC + d.slice(1);
+        var cc = String(WA_CC || '57').replace(/\D/g, '');
+        if (d.charAt(0) === '0') d = cc + d.slice(1);
+        else if (d.length === 10 && cc && !d.startsWith(cc)) d = cc + d;
         return d;
     }
 
@@ -1551,22 +1553,24 @@ if (!$openTermId && $terms) $openTermId = (int)$terms[0]['id'];
             rows.forEach(function (r) {
                 var cls = r.class_name + ' – ' + r.section_name;
                 var badge = r.status === 'A'
-                    ? '<span class="status-badge status-inactive"><i class="fas fa-user-slash"></i> Absent</span>'
-                    : '<span class="status-badge status-current"><i class="fas fa-clock"></i> Late</span>';
+                    ? '<span class="status-badge status-inactive"><i class="fas fa-user-slash"></i> Inasistencia</span>'
+                    : '<span class="status-badge status-current"><i class="fas fa-clock"></i> Retardo</span>';
                 var ph  = waPhone(r.guardian_phone);
-                var msg = 'Dear Guardian, this is regarding ' + r.full_name + ' (' + cls +
-                          (r.roll_no ? ', Roll ' + r.roll_no : '') + '). They were marked ' +
-                          (r.status === 'A' ? 'ABSENT' : 'LATE') + ' on ' + d +
-                          '. Please contact the school if this is unexpected.';
+                var estadoTxt = (r.status === 'A' ? 'INASISTENCIA' : 'LLEGADA TARDE / RETARDO');
+                var msg = 'Estimado(a) acudiente, cordial saludo de la institución educativa.\n\n' +
+                          'Le informamos que el estudiante ' + r.full_name + ' (' + cls +
+                          (r.roll_no ? ', N° de lista ' + r.roll_no : '') + ') fue registrado(a) con novedad de ' +
+                          estadoTxt + ' el día de hoy (' + d + ').\n\n' +
+                          'Si requiere justificar o consultar esta novedad, por favor comuníquese con la institución.';
                 h += '<tr><td><strong>' + esc(r.full_name) + '</strong><br><small class="text-muted">' + esc(r.admission_no) + '</small></td>' +
-                     '<td>' + esc(cls) + (r.roll_no ? ' &middot; Roll ' + esc(r.roll_no) : '') + '</td>' +
+                     '<td>' + esc(cls) + (r.roll_no ? ' &middot; N° ' + esc(r.roll_no) : '') + '</td>' +
                      '<td>' + badge + '</td>' +
                      '<td>' + (r.remarks ? esc(r.remarks) : '<span class="text-muted">&mdash;</span>') + '</td>' +
                      '<td>' + (r.guardian_phone ? esc(r.guardian_phone) : '<span class="text-muted">&mdash;</span>') + '</td>' +
                      '<td>' + (ph
-                        ? '<a class="btn btn-success btn-sm" target="_blank" rel="noopener" href="https://wa.me/' + ph +
-                          '?text=' + encodeURIComponent(msg) + '"><i class="fa-brands fa-whatsapp"></i> WhatsApp</a>'
-                        : '<span class="text-muted">no number</span>') + '</td></tr>';
+                        ? '<a class="btn btn-success btn-sm" target="_blank" rel="noopener" href="https://api.whatsapp.com/send?phone=' + ph +
+                          '&text=' + encodeURIComponent(msg) + '"><i class="fa-brands fa-whatsapp"></i> WhatsApp</a>'
+                        : '<span class="text-muted">Sin teléfono</span>') + '</td></tr>';
             });
             $('#absBody').html(h);
         });

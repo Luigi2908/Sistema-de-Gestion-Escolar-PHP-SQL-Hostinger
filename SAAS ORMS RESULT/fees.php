@@ -703,7 +703,7 @@ if ($action !== '') {
                 requirePermJson('fees', 'a');
                 $yearId = feeOwns('academic_years', feeInt('year_id')) ?: $defYear;
                 $sid2   = feeStudent(feeInt('student_id'), $yearId);
-                if (!$sid2) jsonErr('Student not found');
+                if (!$sid2) jsonErr('Estudiante no encontrado');
 
                 $st = qOne("SELECT st.guardian_email, u.full_name, c.name AS class_name, sec.name AS section_name,
                                    COALESCE(SUM(CASE WHEN f.entry_type = 'Charge' THEN f.amount ELSE 0 END), 0) -
@@ -714,31 +714,89 @@ if ($action !== '') {
                             JOIN sections sec ON sec.id = st.section_id
                             LEFT JOIN student_fees f ON f.student_id = st.id AND f.academic_year_id = ?
                             WHERE st.id = ? GROUP BY st.id", 'ii', $yearId, $sid2);
-                if (!$st) jsonErr('Student not found');
+                if (!$st) jsonErr('Estudiante no encontrado');
                 $gm = trim((string)($st['guardian_email'] ?? ''));
-                if ($gm === '' || !filter_var($gm, FILTER_VALIDATE_EMAIL)) jsonErr('No guardian email on file for this student');
+                if ($gm === '' || !filter_var($gm, FILTER_VALIDATE_EMAIL)) jsonErr('El estudiante no tiene registrado un correo de acudiente válido');
                 $bal = round((float)$st['bal'], 2);
-                if ($bal <= 0) jsonErr('This student has no outstanding balance');
+                if ($bal <= 0) jsonErr('Este estudiante no presenta saldo pendiente');
 
                 $branding = getSiteBranding();
-                $site = htmlspecialchars($branding['site_name']);
-                $html = '<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px;">'
-                    . '<div style="background:#001f3f;padding:20px;text-align:center;"><h1 style="color:#fff;margin:0;font-size:22px;">' . $site . '</h1></div>'
-                    . '<div style="background:#fff;padding:30px;border:1px solid #e9ecef;border-top:none;">'
-                    . '<h2 style="color:#333;margin-top:0;">Fee Reminder</h2>'
-                    . '<p style="color:#666;">Dear Guardian, this is a gentle reminder that the fee account of <strong>'
-                    . htmlspecialchars($st['full_name']) . '</strong> (' . htmlspecialchars($st['class_name'] . ' – ' . $st['section_name']) . ') shows an outstanding balance of</p>'
-                    . '<div style="background:#f8f9fa;padding:20px;text-align:center;margin:20px 0;">'
-                    . '<span style="font-size:28px;font-weight:bold;color:#001f3f;">' . htmlspecialchars(ormsMoney($bal)) . '</span></div>'
-                    . '<p style="color:#666;">Kindly clear it at your earliest convenience. If you have already paid, please disregard this message.</p>'
+                $schName = '';
+                try { $schName = sid() ? (string)qVal("SELECT name FROM schools WHERE id = ?", 'i', sid()) : ''; } catch (Throwable $e) {}
+                $site = htmlspecialchars($schName !== '' ? $schName : $branding['site_name']);
+                $formattedBal = ormsMoney($bal);
+                $studentName = htmlspecialchars($st['full_name']);
+                $courseName = htmlspecialchars($st['class_name'] . ' – ' . $st['section_name']);
+                $subject = 'Recordatorio de pago - ' . ($schName !== '' ? $schName : $branding['site_name']);
+
+                // Plantilla HTML profesional, sencilla, directa y moderna en español
+                $html = '<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;max-width:540px;margin:0 auto;padding:20px;background-color:#f8fafc;">'
+                    . '<div style="background:#001f3f;padding:24px 20px;text-align:center;border-radius:8px 8px 0 0;">'
+                    . '<h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:600;letter-spacing:0.5px;">' . $site . '</h1>'
+                    . '<p style="color:#cbd5e1;margin:6px 0 0 0;font-size:13px;">Gestión y Control Escolar</p>'
                     . '</div>'
-                    . '<div style="background:#f8f9fa;padding:15px;text-align:center;border:1px solid #e9ecef;border-top:none;">'
-                    . '<p style="color:#999;font-size:12px;margin:0;">This is an automated message. Please do not reply.</p>'
+                    . '<div style="background:#ffffff;padding:28px 24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;box-shadow:0 2px 4px rgba(0,0,0,0.03);">'
+                    . '<h2 style="color:#0f172a;margin-top:0;font-size:18px;font-weight:600;border-bottom:1px solid #f1f5f9;padding-bottom:12px;">Aviso de Saldo Pendiente</h2>'
+                    . '<p style="color:#334155;font-size:14px;line-height:1.6;margin-bottom:14px;">Estimado(a) acudiente,</p>'
+                    . '<p style="color:#334155;font-size:14px;line-height:1.6;">Le informamos de manera atenta que el estado de cuenta del estudiante <strong>' . $studentName . '</strong> (' . $courseName . ') presenta a la fecha el siguiente saldo pendiente de pago:</p>'
+                    . '<div style="background:#f1f5f9;border-left:4px solid #001f3f;border-radius:6px;padding:16px 20px;text-align:center;margin:22px 0;">'
+                    . '<span style="display:block;font-size:12px;text-transform:uppercase;color:#64748b;font-weight:600;letter-spacing:0.5px;margin-bottom:4px;">Saldo Pendiente</span>'
+                    . '<span style="font-size:28px;font-weight:bold;color:#001f3f;">' . htmlspecialchars($formattedBal) . '</span>'
+                    . '</div>'
+                    . '<p style="color:#334155;font-size:14px;line-height:1.6;">Agradecemos gestionar el pago a la mayor brevedad a través de los medios institucionales habilitados.</p>'
+                    . '<div style="background:#fffbeb;border:1px solid #fef3c7;border-radius:6px;padding:12px 16px;margin:20px 0;">'
+                    . '<p style="color:#92400e;font-size:13px;line-height:1.5;margin:0;">ℹ️ Si ya realizó este pago recientemente, por favor haga caso omiso de esta notificación.</p>'
+                    . '</div>'
+                    . '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;text-align:center;">'
+                    . '<p style="color:#94a3b8;font-size:12px;margin:0;">Mensaje institucional emitido automáticamente por <strong>' . $site . '</strong>.</p>'
+                    . '</div>'
                     . '</div></div>';
-                $m = sendEmail($gm, 'Fee Reminder - ' . $branding['site_name'], $html);
-                if (!$m['success']) jsonErr('Email not sent: ' . $m['message']);
-                logActivity($user_id, $username, 'Fee Reminder Sent', $st['full_name'] . ' — ' . ormsMoney($bal) . " emailed to $gm");
-                jsonOk(['message' => 'Reminder emailed to ' . $gm]);
+
+                // Texto plano para cuerpo de cliente de correo (mailto)
+                $plain = "Estimado(a) acudiente,\n\n"
+                    . "Cordial saludo de " . ($schName !== '' ? $schName : $branding['site_name']) . ".\n\n"
+                    . "Le informamos que el estudiante " . $st['full_name'] . " (" . $st['class_name'] . " - " . $st['section_name'] . ") presenta a la fecha un saldo pendiente de " . $formattedBal . ".\n\n"
+                    . "Agradecemos gestionar el pago a la mayor brevedad. Si ya realizó este pago, por favor haga caso omiso a este mensaje.\n\n"
+                    . "Atentamente,\n" . ($schName !== '' ? $schName : $branding['site_name']);
+
+                // Intentar envío vía SMTP
+                $m = sendEmail($gm, $subject, $html);
+
+                // Si SMTP no está configurado o falló, intentar fallback a mail() nativo de PHP
+                if (!$m['success']) {
+                    $fromEmail = getSetting('smtp_from_email', '');
+                    if (empty($fromEmail)) {
+                        $host = $_SERVER['HTTP_HOST'] ?? 'sistemagestionescolar.ceie.website';
+                        $host = preg_replace('/:[0-9]+$/', '', $host);
+                        $fromEmail = 'no-reply@' . $host;
+                    }
+                    $fromName = getSetting('smtp_from_name', ($schName !== '' ? $schName : $branding['site_name']));
+                    $headers = [
+                        'MIME-Version: 1.0',
+                        'Content-Type: text/html; charset=UTF-8',
+                        'From: =?UTF-8?B?' . base64_encode($fromName) . '?= <' . $fromEmail . '>',
+                        'Reply-To: ' . $fromEmail,
+                        'X-Mailer: PHP/' . phpversion()
+                    ];
+                    $sent = @mail($gm, '=?UTF-8?B?' . base64_encode($subject) . '?=', $html, implode("\r\n", $headers));
+                    if ($sent) {
+                        $m = ['success' => true, 'message' => 'Correo enviado exitosamente'];
+                    }
+                }
+
+                if ($m['success']) {
+                    logActivity($user_id, $username, 'Recordatorio de tarifa enviado', $st['full_name'] . ' — ' . ormsMoney($bal) . " enviado a $gm");
+                    jsonOk(['message' => 'Recordatorio enviado exitosamente por correo a ' . $gm]);
+                } else {
+                    $mailtoUrl = 'mailto:' . rawurlencode($gm) . '?subject=' . rawurlencode($subject) . '&body=' . rawurlencode($plain);
+                    jsonOk([
+                        'sent' => false,
+                        'smtp_missing' => true,
+                        'guardian_email' => $gm,
+                        'mailto' => $mailtoUrl,
+                        'message' => 'El servidor no tiene configurado el servicio de correo SMTP.'
+                    ]);
+                }
             }
 
             default:
@@ -817,48 +875,47 @@ foreach ($years as $y) if ((int)$y['id'] === $defYear) { $yearName = $y['name'];
                 <?php else: ?>
 
                 <div class="tab-nav no-print" id="feeTabs">
-                    <button type="button" class="tab-btn active" data-tab="balances"><i class="fas fa-scale-balanced"></i> Student Balances</button>
-                    <button type="button" class="tab-btn" data-tab="ledger"><i class="fas fa-receipt"></i> Ledger</button>
-                    <button type="button" class="tab-btn" data-tab="structures"><i class="fas fa-list-check"></i> Fee Structures</button>
+                    <button type="button" class="tab-btn active" data-tab="balances"><i class="fas fa-scale-balanced"></i> Saldos de Estudiantes</button>
+                    <button type="button" class="tab-btn" data-tab="ledger"><i class="fas fa-receipt"></i> Libro Mayor</button>
+                    <button type="button" class="tab-btn" data-tab="structures"><i class="fas fa-list-check"></i> Estructura de Tarifas</button>
                 </div>
 
             <!-- ============ TAB 1: BALANCES ============ -->
             <div class="tab-pane active" id="pane-balances">
                 <div class="section-header">
-                    <h2><i class="fas fa-scale-balanced"></i> Student Balances <span class="myr-sub" id="balLabel"></span></h2>
+                    <h2><i class="fas fa-scale-balanced"></i> Saldos de Estudiantes <span class="myr-sub" id="balLabel"></span></h2>
                     <div class="btn-group-inline">
-                        <button type="button" class="btn btn-primary" id="btnRefresh" onclick="loadOverview(this)"><i class="fas fa-sync"></i> Refresh</button>
+                        <button type="button" class="btn btn-primary" id="btnRefresh" onclick="loadOverview(this)"><i class="fas fa-sync"></i> Actualizar</button>
                         <?php if ($canAdd): ?>
-                        <button type="button" class="btn btn-success" onclick="openBulk()"><i class="fas fa-layer-group"></i> Bulk Charge</button>
+                        <button type="button" class="btn btn-success" onclick="openBulk()"><i class="fas fa-layer-group"></i> Cobro Masivo</button>
                         <button type="button" class="btn btn-secondary" onclick="feeTemplate()"><i class="fas fa-download"></i> Plantilla</button>
                         <button type="button" class="btn btn-secondary" id="btnImportFees" onclick="document.getElementById('feeCsvInput').click()"><i class="fas fa-file-import"></i> Importar CSV</button>
                         <?php endif; ?>
                     </div>
                 </div>
 
-                <!-- what is actually withholding results right now. edited in Result Settings, only reported here -->
+                <!-- Regla de retención de boletines -->
                 <div class="info-banner info-banner-top mb-24" id="ruleBanner">
                     <i class="fas fa-shield-halved"></i>
                     <span>
-                        <b>Withholding rule:</b>
+                        <b>Regla de retención:</b>
                         <span id="ruleText"><?php echo $rule['on']
-                            ? 'Arrears withholding is <b>ON</b> — a balance above ' . htmlspecialchars($rule['threshold_f']) . ' hides the card from the family.'
-                            : 'Arrears withholding is <b>OFF</b> — only a manual hold below hides a card.'; ?></span>
+                            ? 'La retención por mora está <b>ACTIVADA</b> — una deuda superior a ' . htmlspecialchars($rule['threshold_f']) . ' oculta el boletín a la familia.'
+                            : 'La retención por mora está <b>DESACTIVADA</b> — solo una retención manual oculta el boletín.'; ?></span>
                         <span id="ruleCount"></span>
-                        A hold or an unpaid balance <b>never blocks publishing</b> a section — it only hides that one student&rsquo;s card from the family. Staff always see it, stamped.
-                        The flag is frozen onto the card when the section is published, so change a hold <em>before</em> publishing (or unpublish and publish again).
-                        <a href="result_settings.php"><i class="fas fa-sliders"></i> Result Settings &rarr; Options</a> owns the switch, the threshold and the message families see.
+                        Una retención o saldo pendiente <b>nunca impide publicar</b> una sección — solo oculta el boletín de ese estudiante en el portal familiar. El personal docente y administrativo siempre lo visualiza.
+                        <a href="result_settings.php"><i class="fas fa-sliders"></i> Opciones de Resultados</a> administra este límite y los mensajes a las familias.
                     </span>
                 </div>
 
                 <div class="filters-section">
                     <div class="filters-header">
-                        <h3><i class="fas fa-filter"></i> Filters</h3>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearFilters()"><i class="fas fa-times-circle"></i> Clear All</button>
+                        <h3><i class="fas fa-filter"></i> Filtros</h3>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearFilters()"><i class="fas fa-times-circle"></i> Limpiar Todo</button>
                     </div>
                     <div class="filters-grid">
                         <div class="filter-group">
-                            <label><i class="fas fa-calendar-days"></i> Academic Year</label>
+                            <label><i class="fas fa-calendar-days"></i> Año Académico</label>
                             <select id="filterYear" class="filter-input">
                                 <?php foreach ($years as $y): ?>
                                 <option value="<?php echo (int)$y['id']; ?>"<?php echo (int)$y['id'] === $defYear ? ' selected' : ''; ?>><?php echo htmlspecialchars($y['name']); ?></option>
@@ -866,27 +923,27 @@ foreach ($years as $y) if ((int)$y['id'] === $defYear) { $yearName = $y['name'];
                             </select>
                         </div>
                         <div class="filter-group">
-                            <label><i class="fas fa-school"></i> Class</label>
+                            <label><i class="fas fa-school"></i> Grado / Curso</label>
                             <select id="filterClass" class="filter-input">
-                                <option value="">All Classes</option>
+                                <option value="">Todos los cursos</option>
                                 <?php foreach ($classes as $c): ?>
                                 <option value="<?php echo (int)$c['id']; ?>"><?php echo htmlspecialchars($c['name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="filter-group">
-                            <label><i class="fas fa-layer-group"></i> Section</label>
+                            <label><i class="fas fa-layer-group"></i> Sección</label>
                             <select id="filterSection" class="filter-input">
-                                <option value="">All Sections</option>
+                                <option value="">Todas las secciones</option>
                             </select>
                         </div>
                         <div class="filter-group">
-                            <label><i class="fas fa-filter-circle-dollar"></i> Status</label>
+                            <label><i class="fas fa-filter-circle-dollar"></i> Estado</label>
                             <select id="filterStatus" class="filter-input">
-                                <option value="">All Students</option>
-                                <option value="owing">Owing</option>
-                                <option value="cleared">Cleared</option>
-                                <option value="hold">On Hold</option>
+                                <option value="">Todos los estudiantes</option>
+                                <option value="owing">Con saldo pendiente</option>
+                                <option value="cleared">Al día (Paz y salvo)</option>
+                                <option value="hold">Retenidos</option>
                             </select>
                         </div>
                     </div>
@@ -903,24 +960,24 @@ foreach ($years as $y) if ((int)$y['id'] === $defYear) { $yearName = $y['name'];
 
                 <div class="lte-kpi-grid fee-kpi initially-hidden" id="feeKpi">
                     <div class="small-box bg-navy">
-                        <div class="inner"><h3 id="kpiCharged">—</h3><p>Total Charged</p></div>
+                        <div class="inner"><h3 id="kpiCharged">—</h3><p>Total Cobrado</p></div>
                         <div class="icon"><i class="fas fa-file-invoice-dollar"></i></div>
-                        <a href="#feeTable" class="small-box-footer js-status" data-status="">All students <i class="fas fa-arrow-circle-right"></i></a>
+                        <a href="#feeTable" class="small-box-footer js-status" data-status="">Todos los estudiantes <i class="fas fa-arrow-circle-right"></i></a>
                     </div>
                     <div class="small-box bg-success">
-                        <div class="inner"><h3 id="kpiReceived">—</h3><p>Total Received</p></div>
+                        <div class="inner"><h3 id="kpiReceived">—</h3><p>Total Recibido</p></div>
                         <div class="icon"><i class="fas fa-hand-holding-dollar"></i></div>
-                        <a href="#feeTable" class="small-box-footer js-status" data-status="cleared">Cleared students <i class="fas fa-arrow-circle-right"></i></a>
+                        <a href="#feeTable" class="small-box-footer js-status" data-status="cleared">Estudiantes al día <i class="fas fa-arrow-circle-right"></i></a>
                     </div>
                     <div class="small-box bg-warning">
-                        <div class="inner"><h3 id="kpiOutstanding">—</h3><p>Outstanding</p></div>
+                        <div class="inner"><h3 id="kpiOutstanding">—</h3><p>Pendiente por Cobrar</p></div>
                         <div class="icon"><i class="fas fa-scale-unbalanced"></i></div>
-                        <a href="#feeTable" class="small-box-footer js-status" data-status="owing">Who owes <i class="fas fa-arrow-circle-right"></i></a>
+                        <a href="#feeTable" class="small-box-footer js-status" data-status="owing">Ver quién debe <i class="fas fa-arrow-circle-right"></i></a>
                     </div>
                     <div class="small-box bg-navy-2">
-                        <div class="inner"><h3 id="kpiOwing">—</h3><p>Students Owing</p></div>
+                        <div class="inner"><h3 id="kpiOwing">—</h3><p>Estudiantes con Deuda</p></div>
                         <div class="icon"><i class="fas fa-user-clock"></i></div>
-                        <a href="#feeTable" class="small-box-footer js-status" data-status="owing">Open the list <i class="fas fa-arrow-circle-right"></i></a>
+                        <a href="#feeTable" class="small-box-footer js-status" data-status="owing">Ver lista de deudores <i class="fas fa-arrow-circle-right"></i></a>
                     </div>
                 </div>
 
@@ -1463,57 +1520,73 @@ foreach ($years as $y) if ((int)$y['id'] === $defYear) { $yearName = $y['name'];
             data: rows,
             destroy: true,
             columns: [
-                { data: 'adm', title: '<i class="fas fa-id-card"></i> Admission No', render: function (d) { return ORMS.esc(d); } },
-                { data: null,  title: '<i class="fas fa-user-graduate"></i> Student',
+                { data: 'adm', title: '<i class="fas fa-id-card"></i> N° Admisión', render: function (d) { return ORMS.esc(d); } },
+                { data: null,  title: '<i class="fas fa-user-graduate"></i> Estudiante',
                   render: function (d, t, r) {
                       if (t !== 'display') return r.name;
-                      return '<strong>' + ORMS.esc(r.name) + '</strong>' + (r.roll ? '<br><small class="text-muted">Roll ' + ORMS.esc(r.roll) + '</small>' : '');
+                      return '<strong>' + ORMS.esc(r.name) + '</strong>' + (r.roll ? '<br><small class="text-muted">Lista N° ' + ORMS.esc(r.roll) + '</small>' : '');
                   } },
-                { data: 'cls', title: '<i class="fas fa-chalkboard"></i> Class – Section', render: function (d) { return ORMS.esc(d); } },
-                { data: null,  title: '<i class="fas fa-file-invoice-dollar"></i> Charged',
+                { data: 'cls', title: '<i class="fas fa-chalkboard"></i> Grado – Sección', render: function (d) { return ORMS.esc(d); } },
+                { data: null,  title: '<i class="fas fa-file-invoice-dollar"></i> Cobrado',
                   render: function (d, t, r) { return t === 'display' ? ORMS.esc(r.charged_f) : r.charged; } },
-                { data: null,  title: '<i class="fas fa-hand-holding-dollar"></i> Paid',
+                { data: null,  title: '<i class="fas fa-hand-holding-dollar"></i> Pagado',
                   render: function (d, t, r) { return t === 'display' ? ORMS.esc(r.paid_f) : r.paid; } },
-                { data: null,  title: '<i class="fas fa-scale-balanced"></i> Balance',
+                { data: null,  title: '<i class="fas fa-scale-balanced"></i> Saldo',
                   render: function (d, t, r) { return t === 'display' ? balCell(r.balance) : r.balance; } },
-                { data: null,  title: '<i class="fas fa-lock"></i> Hold',
+                { data: null,  title: '<i class="fas fa-lock"></i> Retención',
                   render: function (d, t, r) {
                       if (t !== 'display') return r.hold;
                       if (!r.hold) return '<span class="text-muted">—</span>';
-                      return '<span class="fee-hold"><i class="fas fa-lock"></i> On hold</span>' +
+                      return '<span class="fee-hold"><i class="fas fa-lock"></i> Retenido</span>' +
                              (r.hold_note ? '<br><small class="text-muted">' + ORMS.esc(r.hold_note) + '</small>' : '');
                   } },
-                { data: null, title: '<i class="fas fa-bolt"></i> Actions', orderable: false,
+                { data: null, title: '<i class="fas fa-bolt"></i> Acciones', orderable: false,
                   render: function (d, t, r) {
-                      var b = '<button class="action-icon" title="Ledger" onclick="openLedger(' + r.id + ')"><i class="fas fa-receipt"></i></button>';
+                      var b = '<button class="action-icon" title="Ver historial de cobros y pagos" onclick="openLedger(' + r.id + ')"><i class="fas fa-receipt"></i></button>';
                       if (CAN.a) {
-                          b += '<button class="action-icon" title="Add charge" onclick="entryFor(' + r.id + ', \'Charge\')"><i class="fas fa-plus"></i></button>';
-                          b += '<button class="action-icon" title="Record payment" onclick="entryFor(' + r.id + ', \'Payment\')"><i class="fas fa-money-bill-wave"></i></button>';
+                          b += '<button class="action-icon" title="Agregar cobro" onclick="entryFor(' + r.id + ', \'Charge\')"><i class="fas fa-plus"></i></button>';
+                          b += '<button class="action-icon" title="Registrar pago" onclick="entryFor(' + r.id + ', \'Payment\')"><i class="fas fa-money-bill-wave"></i></button>';
                       }
-                      if (CAN.e) b += '<button class="action-icon" title="Hold / release result" onclick="openHold(' + r.id + ')"><i class="fas fa-lock"></i></button>';
-                      b += '<button class="action-icon" title="Print challan" onclick="printChallan(' + r.id + ')"><i class="fas fa-file-invoice"></i></button>';
+                      if (CAN.e) b += '<button class="action-icon" title="Retener / liberar resultados" onclick="openHold(' + r.id + ')"><i class="fas fa-lock"></i></button>';
+                      b += '<button class="action-icon" title="Imprimir cuenta de cobro / recibo" onclick="printChallan(' + r.id + ')"><i class="fas fa-file-invoice"></i></button>';
                       if (r.balance > 0) {          // reminders only make sense while something is owed
-                          if (r.gphone) b += '<a class="action-icon" title="WhatsApp fee reminder" target="_blank" rel="noopener" href="' + waFeeLink(r) + '"><i class="fa-brands fa-whatsapp"></i></a>';
-                          if (CAN.a && r.gmail) b += '<button class="action-icon" title="Email fee reminder" onclick="mailReminder(' + r.id + ', this)"><i class="fas fa-envelope"></i></button>';
+                          if (r.gphone) b += '<a class="action-icon" title="Notificar por WhatsApp" target="_blank" rel="noopener" href="' + waFeeLink(r) + '"><i class="fa-brands fa-whatsapp"></i></a>';
+                          if (CAN.a && r.gmail) b += '<button class="action-icon" title="Notificar por correo electrónico" onclick="mailReminder(' + r.id + ', this)"><i class="fas fa-envelope"></i></button>';
                       }
                       return b;
                   } }
             ],
             pageLength: 10,
-            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'Todos']],
             responsive: true,
             dom: 'Blfrtip',
             buttons: [
-                { extend: 'csv', text: '<i class="fas fa-file-csv"></i> CSV', title: 'Student Fee Balances', exportOptions: { columns: ':not(:last-child)' } },
+                { extend: 'csv', text: '<i class="fas fa-file-csv"></i> CSV', title: 'Saldos de Tarifas de Estudiantes', exportOptions: { columns: ':not(:last-child)' } },
                 { text: '<i class="fas fa-file-pdf"></i> PDF',
                   action: function (e, dt, node, cfg) {
                       loadExportDeps(function () { $.fn.dataTable.ext.buttons.pdfHtml5.action.call(dt.button(node), e, dt, node, cfg); });
                   },
-                  title: 'Student Fee Balances', exportOptions: { columns: ':not(:last-child)' } },
-                { extend: 'print', text: '<i class="fas fa-print"></i> Print', title: 'Student Fee Balances', exportOptions: { columns: ':not(:last-child)' } }
+                  title: 'Saldos de Tarifas de Estudiantes', exportOptions: { columns: ':not(:last-child)' } },
+                { extend: 'print', text: '<i class="fas fa-print"></i> Imprimir', title: 'Saldos de Tarifas de Estudiantes', exportOptions: { columns: ':not(:last-child)' } }
             ],
             order: [[0, 'asc']],
-            language: { emptyTable: 'No students found for these filters' }
+            language: {
+                emptyTable: 'No se encontraron estudiantes para los filtros seleccionados',
+                info: 'Mostrando _START_ a _END_ de _TOTAL_ estudiantes',
+                infoEmpty: 'Mostrando 0 a 0 de 0 estudiantes',
+                infoFiltered: '(filtrado de _MAX_ estudiantes en total)',
+                lengthMenu: 'Mostrar _MENU_ entradas',
+                loadingRecords: 'Cargando...',
+                processing: 'Procesando...',
+                search: 'Buscar:',
+                zeroRecords: 'No se encontraron coincidencias',
+                paginate: {
+                    first: 'Primero',
+                    last: 'Último',
+                    next: 'Siguiente',
+                    previous: 'Anterior'
+                }
+            }
         });
     }
 
@@ -1825,7 +1898,7 @@ foreach ($years as $y) if ((int)$y['id'] === $defYear) { $yearName = $y['name'];
     }
 
     // ==================== fee structures + reminders + challan ====================
-    var WA_CC = <?php echo json_encode((string)getSetting('whatsapp_country_code', '92')); ?>;
+    var WA_CC = <?php echo json_encode((string)getSetting('whatsapp_country_code', '57')); ?>;
     var SCHOOL_NAME = <?php
         $chName = '';
         try { $chName = sid() ? (string)qVal("SELECT name FROM schools WHERE id = ?", 'i', sid()) : ''; } catch (Throwable $e) {}
@@ -1836,21 +1909,45 @@ foreach ($years as $y) if ((int)$y['id'] === $defYear) { $yearName = $y['name'];
     function waPhone(p) {
         var d = String(p || '').replace(/\D/g, '');
         if (!d) return '';
-        if (d.charAt(0) === '0') d = WA_CC + d.slice(1);
+        var cc = String(WA_CC || '57').replace(/\D/g, '');
+        if (d.charAt(0) === '0') d = cc + d.slice(1);
+        else if (d.length === 10 && cc && !d.startsWith(cc)) d = cc + d;
         return d;
     }
 
     function waFeeLink(r) {
-        var msg = 'Dear Guardian, this is ' + SCHOOL_NAME + '. The fee account of ' + r.name + ' (' + r.cls +
-                  ') shows an outstanding balance of ' + r.balance_f + '. Kindly clear it at your earliest convenience. Thank you.';
-        return 'https://wa.me/' + waPhone(r.gphone) + '?text=' + encodeURIComponent(msg);
+        var msg = 'Estimado(a) acudiente, cordial saludo de ' + SCHOOL_NAME + '.\n\n' +
+                  'Le recordamos de manera atenta que el estudiante ' + r.name + ' (' + r.cls + ') presenta a la fecha un saldo pendiente de ' + r.balance_f + '.\n\n' +
+                  'Agradecemos gestionar el pago a la mayor brevedad. Si ya lo realizó, por favor haga caso omiso a este mensaje. ¡Muchas gracias!';
+        return 'https://api.whatsapp.com/send?phone=' + waPhone(r.gphone) + '&text=' + encodeURIComponent(msg);
     }
 
     function mailReminder(id, btn) {
         var r = rowOf(id);
         if (!r) return;
-        ORMS.post('emailFeeReminder', { student_id: id, year_id: yearId() }, { btn: btn, busyLabel: ' ', verb: 'Sending…' })
-            .done(function (res) { res.success ? ORMS.ok(res.message) : ORMS.err(res.message); })
+        ORMS.post('emailFeeReminder', { student_id: id, year_id: yearId() }, { btn: btn, busyLabel: ' ', verb: 'Enviando…' })
+            .done(function (res) {
+                if (res.success && res.sent !== false) {
+                    ORMS.ok(res.message || ('Recordatorio enviado exitosamente a ' + (r.gmail || 'correo')));
+                } else if (res.mailto) {
+                    Swal.fire({
+                        icon: 'info',
+                        title: 'Servicio de correo SMTP',
+                        html: '<p style="font-size:14px;color:#475569;margin-bottom:12px;">El servidor aún no tiene activado el envío automático de correos (se puede activar en <b>Sistema &rarr; Configuración SMTP</b>).</p>' +
+                              '<p style="font-size:14px;color:#1e293b;font-weight:500;">¿Deseas abrir tu cliente de correo (Gmail, Outlook, etc.) para enviar la notificación en español ya redactada a <b>' + ORMS.esc(r.gmail) + '</b>?</p>',
+                        showCancelButton: true,
+                        confirmButtonText: '<i class="fas fa-envelope-open-text"></i> Abrir cliente de correo',
+                        cancelButtonText: 'Cancelar',
+                        confirmButtonColor: '#001f3f'
+                    }).then(function (x) {
+                        if (x.isConfirmed) {
+                            window.location.href = res.mailto;
+                        }
+                    });
+                } else {
+                    ORMS.err(res.message || 'Error al enviar el correo');
+                }
+            })
             .fail(function (m) { ORMS.err(m); });
     }
 
@@ -1859,32 +1956,32 @@ foreach ($years as $y) if ((int)$y['id'] === $defYear) { $yearName = $y['name'];
         var r = rowOf(id);
         if (!r) return;
         var today = new Date().toISOString().slice(0, 10);
-        var h = '<!DOCTYPE html><html><head><title>Fee Challan - ' + ORMS.esc(r.adm) + '</title><style>' +
-            'body{font-family:Arial,sans-serif;margin:0;padding:24px;color:#222}' +
-            '.ch{max-width:420px;margin:0 auto;border:2px solid #001f3f}' +
-            '.ch-head{background:#001f3f;color:#fff;text-align:center;padding:14px}' +
-            '.ch-head h2{margin:0;font-size:18px}.ch-head small{opacity:.85}' +
+        var h = '<!DOCTYPE html><html><head><title>Cuenta de Cobro - ' + ORMS.esc(r.adm) + '</title><style>' +
+            'body{font-family:Segoe UI,Arial,sans-serif;margin:0;padding:24px;color:#222}' +
+            '.ch{max-width:440px;margin:0 auto;border:2px solid #001f3f;border-radius:6px;overflow:hidden}' +
+            '.ch-head{background:#001f3f;color:#fff;text-align:center;padding:16px}' +
+            '.ch-head h2{margin:0;font-size:18px}.ch-head small{opacity:.85;letter-spacing:0.5px}' +
             'table{width:100%;border-collapse:collapse;font-size:13px}' +
-            'td,th{padding:7px 12px;border-bottom:1px solid #e5e5e5;text-align:left}' +
-            'th{background:#f5f7fa;width:42%;color:#555;font-weight:600}' +
-            '.ch-bal{background:#f5f7fa;text-align:center;padding:14px}' +
-            '.ch-bal b{font-size:22px;color:#001f3f}' +
-            '.ch-foot{padding:10px 12px;font-size:11px;color:#777;text-align:center}' +
+            'td,th{padding:8px 14px;border-bottom:1px solid #e5e5e5;text-align:left}' +
+            'th{background:#f8fafc;width:42%;color:#475569;font-weight:600}' +
+            '.ch-bal{background:#f8fafc;text-align:center;padding:16px;border-top:1px solid #e5e5e5}' +
+            '.ch-bal b{font-size:24px;color:#001f3f}' +
+            '.ch-foot{padding:12px 14px;font-size:11px;color:#64748b;text-align:center;background:#fff;border-top:1px solid #e5e5e5}' +
             '@media print{body{padding:0}}' +
             '</style></head><body><div class="ch">' +
-            '<div class="ch-head"><h2>' + ORMS.esc(SCHOOL_NAME) + '</h2><small>FEE CHALLAN &mdash; ' + today + '</small></div>' +
+            '<div class="ch-head"><h2>' + ORMS.esc(SCHOOL_NAME) + '</h2><small>ESTADO DE CUENTA / RECIBO &mdash; ' + today + '</small></div>' +
             '<table>' +
-            '<tr><th>Student</th><td>' + ORMS.esc(r.name) + '</td></tr>' +
-            '<tr><th>Admission No</th><td>' + ORMS.esc(r.adm) + '</td></tr>' +
-            '<tr><th>Class</th><td>' + ORMS.esc(r.cls) + (r.roll ? ' &middot; Roll ' + ORMS.esc(r.roll) : '') + '</td></tr>' +
-            '<tr><th>Total Charged</th><td>' + ORMS.esc(r.charged_f) + '</td></tr>' +
-            '<tr><th>Total Paid</th><td>' + ORMS.esc(r.paid_f) + '</td></tr>' +
+            '<tr><th>Estudiante</th><td>' + ORMS.esc(r.name) + '</td></tr>' +
+            '<tr><th>N° Admisión</th><td>' + ORMS.esc(r.adm) + '</td></tr>' +
+            '<tr><th>Grado y Sección</th><td>' + ORMS.esc(r.cls) + (r.roll ? ' &middot; N° ' + ORMS.esc(r.roll) : '') + '</td></tr>' +
+            '<tr><th>Total Cobrado</th><td>' + ORMS.esc(r.charged_f) + '</td></tr>' +
+            '<tr><th>Total Pagado</th><td>' + ORMS.esc(r.paid_f) + '</td></tr>' +
             '</table>' +
-            '<div class="ch-bal">Balance Due<br><b>' + ORMS.esc(r.balance_f) + '</b></div>' +
-            '<div class="ch-foot">Please pay at the school office and keep the receipt. If already paid, kindly disregard.</div>' +
+            '<div class="ch-bal">Saldo Pendiente<br><b>' + ORMS.esc(r.balance_f) + '</b></div>' +
+            '<div class="ch-foot">Por favor cancelar en la administración escolar y conservar este comprobante. Si ya realizó el pago, haga caso omiso.</div>' +
             '</div><script>window.print();<\/script></body></html>';
         var w = window.open('', '_blank');
-        if (!w) { ORMS.err('Allow popups to print the challan'); return; }
+        if (!w) { ORMS.err('Permite las ventanas emergentes para imprimir el comprobante'); return; }
         w.document.write(h);
         w.document.close();
     }
