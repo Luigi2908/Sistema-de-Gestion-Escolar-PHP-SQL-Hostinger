@@ -55,6 +55,8 @@ if (!function_exists('ormsEnsureSchoolColumns')) {
                 if ($colToken && $colToken->num_rows === 0) {
                     @$c->query("ALTER TABLE `billing_invoices` ADD COLUMN `token` CHAR(48) NOT NULL DEFAULT '' AFTER `invoice_no`");
                 }
+            }
+
             // Auto-heal student_fees table if obsolete or missing required ledger columns
             $probeFees = @$c->query("SHOW TABLES LIKE 'student_fees'");
             if ($probeFees && $probeFees->num_rows > 0) {
