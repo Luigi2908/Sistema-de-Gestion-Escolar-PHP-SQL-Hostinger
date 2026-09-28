@@ -1,0 +1,51 @@
+# Developed by Mohammad Rameez Imdad (Rameez Scripts)
+# WhatsApp: https://whatsapp.rameezscripts.com/ (For Custom Projects)
+# YouTube: https://www.youtube.com/@rameezimdad (Subscribe for more!)
+
+# no directory listing
+Options -Indexes
+
+# config + dotfiles are never served
+<FilesMatch "^(config\.php|\.env|\.git|\.htaccess|\.gitignore)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# FilesMatch can't cover files INSIDE .git/ (HEAD, config, packfiles) — block the whole path
+RedirectMatch 404 /\.git
+
+# docs, dumps, logs and helper scripts live in the web root but must never be fetchable —
+# db-user-setup.sql carries the db password, error_log.txt carries stack traces + paths
+# .html joins the list: every real page here is .php, so a loose .html in the web root is a spec,
+# a scratch export or a saved prompt — never something a visitor should fetch. offline.html is the
+# one exception and is granted back below.
+<FilesMatch "\.(md|sql|bat|sh|txt|log|orig|bak|tmp|ini|yml|yaml|html)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# offline.html is the service-worker fallback — keep it reachable despite the rules above
+<Files "offline.html">
+    <IfModule mod_authz_core.c>
+        Require all granted
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Allow from all
+    </IfModule>
+</Files>
+
+RewriteEngine On
+
+# Force HTTPS (production — uncomment on the live host)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]

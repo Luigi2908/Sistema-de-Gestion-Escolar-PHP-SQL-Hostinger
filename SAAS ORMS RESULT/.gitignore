@@ -1,0 +1,16 @@
+# runtime logs
+error_log.txt
+*.log
+
+# user-uploaded content (keep folder + rules, not the images)
+uploads/profiles/*
+!uploads/profiles/.gitkeep
+
+# backups / editor / OS cruft
+*.bak
+*.orig
+*.tmp
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
