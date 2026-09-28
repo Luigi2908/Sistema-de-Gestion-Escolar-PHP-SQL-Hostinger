@@ -25,6 +25,11 @@ jobs:
           CLEAN_SERVER=$(echo "$RAW_SERVER" | sed -e 's|^[a-zA-Z]*://||' -e 's|:.*||' -e 's|/.*||' | tr -d '[:space:]')
           echo "FTP_CLEAN_SERVER=$CLEAN_SERVER" >> $GITHUB_ENV
 
+      - name: Inspeccionar carpetas en Hostinger
+        run: |
+          echo "=== Listado de carpetas en la raiz del FTP ==="
+          curl -s -k --ftp-ssl -u "${{ secrets.FTP_USERNAME }}:${{ secrets.FTP_PASSWORD }}" "ftp://${{ env.FTP_CLEAN_SERVER }}:21/" || true
+
       - name: Desplegar archivos por FTPS
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
