@@ -38,6 +38,7 @@ if (!isset($username) || !isset($role) || !isset($current_page) || !isset($user_
     die('Sidebar requires $username, $role, $current_page, and $user_id variables');
 }
 
+require_once __DIR__ . '/billing_engine.php';
 // whose tenant am I in? the school's own name/logo, site branding as the fallback — never the
 // signed-in user's avatar, which said nothing about which school the page belongs to
 $site_brand  = getSiteBranding();

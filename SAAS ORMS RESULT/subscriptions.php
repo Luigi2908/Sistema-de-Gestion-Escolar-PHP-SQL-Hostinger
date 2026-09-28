@@ -9,6 +9,7 @@
  * Period rows are APPEND-ONLY: a renewal never rewrites the row it followed.
  */
 require_once 'config.php';
+require_once 'billing_engine.php';
 
 if (!isset($_SESSION['user_id'])) { header("Location: login.php"); exit(); }
 if (!checkSessionTimeout())       { header("Location: login.php"); exit(); }

@@ -12,6 +12,56 @@ if (!defined('ORMS_BILLING')) {
     define('ORMS_BILLING', 1);
     require_once __DIR__ . '/config.php';
 
+if (!function_exists('ormsEnsureSchoolColumns')) {
+    function ormsEnsureSchoolColumns(): void {
+        static $done = false;
+        if ($done) return;
+        $done = true;
+        try {
+            $c = getDBConnection(true);
+            if (!$c) return;
+            $probe = @$c->query("SHOW COLUMNS FROM `schools` LIKE 'trial_ends_at'");
+            if ($probe && $probe->num_rows === 0) {
+                @$c->query("ALTER TABLE `schools` ADD COLUMN `trial_ends_at` DATE DEFAULT NULL AFTER `plan_id`");
+            }
+            $probeLogo = @$c->query("SHOW COLUMNS FROM `schools` LIKE 'logo'");
+            if ($probeLogo && $probeLogo->num_rows === 0) {
+                @$c->query("ALTER TABLE `schools` ADD COLUMN `logo` VARCHAR(255) DEFAULT NULL AFTER `code`");
+            }
+            $probeCur = @$c->query("SHOW COLUMNS FROM `schools` LIKE 'billing_currency'");
+            if ($probeCur && $probeCur->num_rows === 0) {
+                @$c->query("ALTER TABLE `schools` ADD COLUMN `billing_currency` VARCHAR(10) DEFAULT NULL AFTER `plan_id`");
+            }
+            $probeInv = @$c->query("SHOW TABLES LIKE 'billing_invoices'");
+            if ($probeInv && $probeInv->num_rows > 0) {
+                $colCycle = @$c->query("SHOW COLUMNS FROM `billing_invoices` LIKE 'cycle'");
+                if ($colCycle && $colCycle->num_rows === 0) {
+                    $colOld = @$c->query("SHOW COLUMNS FROM `billing_invoices` LIKE 'billing_cycle'");
+                    if ($colOld && $colOld->num_rows > 0) {
+                        @$c->query("ALTER TABLE `billing_invoices` CHANGE `billing_cycle` `cycle` ENUM('monthly','yearly') NOT NULL DEFAULT 'monthly'");
+                    } else {
+                        @$c->query("ALTER TABLE `billing_invoices` ADD COLUMN `cycle` ENUM('monthly','yearly') NOT NULL DEFAULT 'monthly' AFTER `plan_id`");
+                    }
+                }
+                $colPaid = @$c->query("SHOW COLUMNS FROM `billing_invoices` LIKE 'paid_at'");
+                if ($colPaid && $colPaid->num_rows === 0) {
+                    @$c->query("ALTER TABLE `billing_invoices` ADD COLUMN `paid_at` DATETIME DEFAULT NULL AFTER `period_end`");
+                }
+                $colProof = @$c->query("SHOW COLUMNS FROM `billing_invoices` LIKE 'proof'");
+                if ($colProof && $colProof->num_rows === 0) {
+                    @$c->query("ALTER TABLE `billing_invoices` ADD COLUMN `proof` VARCHAR(255) DEFAULT NULL AFTER `paid_at`");
+                }
+                $colToken = @$c->query("SHOW COLUMNS FROM `billing_invoices` LIKE 'token'");
+                if ($colToken && $colToken->num_rows === 0) {
+                    @$c->query("ALTER TABLE `billing_invoices` ADD COLUMN `token` CHAR(48) NOT NULL DEFAULT '' AFTER `invoice_no`");
+                }
+            }
+        } catch (Throwable $e) {}
+    }
+}
+ormsEnsureSchoolColumns();
+
+
 // ---------------------------------------------------------------- period math
 
 function bilAddMonths(string $ymd, int $n): string {
