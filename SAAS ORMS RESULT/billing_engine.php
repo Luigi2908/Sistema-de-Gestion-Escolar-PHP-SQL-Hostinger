@@ -55,6 +55,91 @@ if (!function_exists('ormsEnsureSchoolColumns')) {
                 if ($colToken && $colToken->num_rows === 0) {
                     @$c->query("ALTER TABLE `billing_invoices` ADD COLUMN `token` CHAR(48) NOT NULL DEFAULT '' AFTER `invoice_no`");
                 }
+            // Auto-heal student_fees table if obsolete or missing required ledger columns
+            $probeFees = @$c->query("SHOW TABLES LIKE 'student_fees'");
+            if ($probeFees && $probeFees->num_rows > 0) {
+                $colEntry = @$c->query("SHOW COLUMNS FROM `student_fees` LIKE 'entry_type'");
+                if ($colEntry && $colEntry->num_rows === 0) {
+                    $feeCount = 0;
+                    try {
+                        $fcr = @$c->query("SELECT COUNT(*) FROM `student_fees`");
+                        if ($fcr && ($frow = $fcr->fetch_row())) $feeCount = (int)$frow[0];
+                    } catch (Throwable $e) {}
+
+                    if ($feeCount === 0) {
+                        @$c->query("DROP TABLE IF EXISTS `student_fees`");
+                        @$c->query("CREATE TABLE `student_fees` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `school_id` INT NOT NULL DEFAULT 1,
+                            `student_id` INT NOT NULL,
+                            `academic_year_id` INT NOT NULL,
+                            `term_id` INT DEFAULT NULL,
+                            `entry_type` ENUM('Charge','Payment') NOT NULL DEFAULT 'Charge',
+                            `description` VARCHAR(150) NOT NULL,
+                            `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                            `entry_date` DATE DEFAULT NULL,
+                            `reference` VARCHAR(50) DEFAULT NULL,
+                            `note` VARCHAR(255) DEFAULT NULL,
+                            `created_by` INT DEFAULT NULL,
+                            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                            INDEX `idx_fee_student` (`student_id`, `academic_year_id`),
+                            INDEX `idx_fee_term` (`term_id`),
+                            INDEX `idx_student_fees_school` (`school_id`),
+                            CONSTRAINT `fk_fee_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+                            CONSTRAINT `fk_fee_year` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+                    } else {
+                        @$c->query("ALTER TABLE `student_fees` ADD COLUMN IF NOT EXISTS `term_id` INT DEFAULT NULL AFTER `academic_year_id`");
+                        @$c->query("ALTER TABLE `student_fees` ADD COLUMN IF NOT EXISTS `entry_type` ENUM('Charge','Payment') NOT NULL DEFAULT 'Charge' AFTER `term_id`");
+                        @$c->query("ALTER TABLE `student_fees` ADD COLUMN IF NOT EXISTS `description` VARCHAR(150) NOT NULL DEFAULT 'Fee' AFTER `entry_type`");
+                        @$c->query("ALTER TABLE `student_fees` ADD COLUMN IF NOT EXISTS `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER `description`");
+                        @$c->query("ALTER TABLE `student_fees` ADD COLUMN IF NOT EXISTS `entry_date` DATE DEFAULT NULL AFTER `amount`");
+                        @$c->query("ALTER TABLE `student_fees` ADD COLUMN IF NOT EXISTS `reference` VARCHAR(50) DEFAULT NULL AFTER `entry_date`");
+                        @$c->query("ALTER TABLE `student_fees` ADD COLUMN IF NOT EXISTS `note` VARCHAR(255) DEFAULT NULL AFTER `reference`");
+                        @$c->query("ALTER TABLE `student_fees` ADD COLUMN IF NOT EXISTS `created_by` INT DEFAULT NULL AFTER `note`");
+                        @$c->query("ALTER TABLE `student_fees` MODIFY COLUMN `month` VARCHAR(15) NULL DEFAULT NULL");
+                    }
+                }
+            } else {
+                @$c->query("CREATE TABLE `student_fees` (
+                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `school_id` INT NOT NULL DEFAULT 1,
+                    `student_id` INT NOT NULL,
+                    `academic_year_id` INT NOT NULL,
+                    `term_id` INT DEFAULT NULL,
+                    `entry_type` ENUM('Charge','Payment') NOT NULL DEFAULT 'Charge',
+                    `description` VARCHAR(150) NOT NULL,
+                    `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    `entry_date` DATE DEFAULT NULL,
+                    `reference` VARCHAR(50) DEFAULT NULL,
+                    `note` VARCHAR(255) DEFAULT NULL,
+                    `created_by` INT DEFAULT NULL,
+                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX `idx_fee_student` (`student_id`, `academic_year_id`),
+                    INDEX `idx_fee_term` (`term_id`),
+                    INDEX `idx_student_fees_school` (`school_id`),
+                    CONSTRAINT `fk_fee_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+                    CONSTRAINT `fk_fee_year` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            }
+
+            // Ensure fee_structures table
+            $probeFs = @$c->query("SHOW TABLES LIKE 'fee_structures'");
+            if ($probeFs && $probeFs->num_rows === 0) {
+                @$c->query("CREATE TABLE `fee_structures` (
+                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `school_id` INT NOT NULL DEFAULT 1,
+                    `class_id` INT NOT NULL,
+                    `name` VARCHAR(80) NOT NULL,
+                    `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                    `frequency` ENUM('Monthly','One-Time') NOT NULL DEFAULT 'Monthly',
+                    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY `uniq_fs` (`class_id`, `name`),
+                    CONSTRAINT `fk_fs_class` FOREIGN KEY (`class_id`) REFERENCES `classes` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
             }
         } catch (Throwable $e) {}
     }

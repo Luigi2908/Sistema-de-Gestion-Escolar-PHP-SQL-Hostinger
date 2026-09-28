@@ -5,6 +5,7 @@
  * YouTube: https://www.youtube.com/@rameezimdad (Subscribe for more!)
  */
 require_once 'config.php';
+require_once 'billing_engine.php';
 
 // Check if user is logged in & session timeout (JSON response for AJAX, redirect for HTML)
 $isAjaxReq = isset($_GET['action']) || isset($_POST['action'])
@@ -516,7 +517,7 @@ if ($action !== '') {
                 $n = count($ids);
                 logActivity($user_id, $username, 'Bulk Fee Charge',
                             "{$n} student(s), " . ormsMoney($amt) . " — {$desc} (class_id={$classId}, section_id={$secId})", 'student_fees');
-                jsonOk(['message' => $n . ' student(s) charged ' . ormsMoney($amt), 'count' => $n]);
+                jsonOk(['message' => 'Cobro de ' . ormsMoney($amt) . ' registrado para ' . $n . ' estudiante' . ($n === 1 ? '' : 's'), 'count' => $n]);
             }
 
             // ---------------- csv import ----------------
@@ -745,7 +746,7 @@ if ($action !== '') {
         }
     } catch (Throwable $e) {
         error_log('fees.php error: ' . $e->getMessage());
-        jsonErr('Something went wrong. Please try again.');
+        jsonErr('Error al procesar tarifas: ' . $e->getMessage());
     }
 }
 
@@ -1702,20 +1703,25 @@ foreach ($years as $y) if ((int)$y['id'] === $defYear) { $yearName = $y['name'];
     function saveBulk(ev) {
         ev.preventDefault();
         var n = parseInt($('#bCount').text() || 0, 10);
-        if (!n) { ORMS.err('No active students in that class or section for this year'); return; }
+        if (!n) { ORMS.err('No hay estudiantes activos en esa clase o sección para este año'); return; }
+        var amtVal = $('#bAmount').val() || 0;
+        var descVal = $.trim($('#bDesc').val() || '');
         Swal.fire({
-            icon: 'question', title: 'Charge ' + n + ' student(s)?',
-            html: 'Each gets <b>' + ORMS.esc(money($('#bAmount').val() || 0)) + '</b> — ' + ORMS.esc($.trim($('#bDesc').val() || '')),
-            showCancelButton: true, confirmButtonText: '<i class="fas fa-bolt"></i> Charge', cancelButtonText: 'Cancel'
+            icon: 'question',
+            title: n === 1 ? '¿Cobrar a 1 estudiante?' : ('¿Cobrar a ' + n + ' estudiantes?'),
+            html: 'Se registrará un cobro de <b>' + ORMS.esc(money(amtVal)) + '</b> por estudiante — ' + ORMS.esc(descVal),
+            showCancelButton: true,
+            confirmButtonText: '<i class="fas fa-bolt"></i> Cobrar',
+            cancelButtonText: 'Cancelar'
         }).then(function (x) {
             if (!x.isConfirmed) return;
             ORMS.post('bulkChargeClass', {
                 year_id: yearId(), class_id: $('#bClass').val() || 0, section_id: $('#bSection').val() || 0,
-                term_id: $('#bTerm').val() || 0, description: $.trim($('#bDesc').val() || ''),
-                amount: $('#bAmount').val(), entry_date: $('#bDate').val() || '',
+                term_id: $('#bTerm').val() || 0, description: descVal,
+                amount: amtVal, entry_date: $('#bDate').val() || '',
                 reference: $.trim($('#bRef').val() || ''), note: $.trim($('#bNote').val() || '')
-            }, { btn: '#btnSaveBulk', busyLabel: 'Charging…' }).done(function (res) {
-                if (!res.success) { ORMS.err(res.message || 'Bulk charge failed'); return; }
+            }, { btn: '#btnSaveBulk', busyLabel: 'Procesando…' }).done(function (res) {
+                if (!res.success) { ORMS.err(res.message || 'Error al aplicar el cobro masivo'); return; }
                 closeModal('#bulkModal');
                 ORMS.ok(res.message);
                 loadOverview();

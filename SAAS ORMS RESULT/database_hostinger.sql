@@ -866,19 +866,21 @@ CREATE TABLE `student_fees` (
   `school_id` INT NOT NULL DEFAULT 1,
   `student_id` INT NOT NULL,
   `academic_year_id` INT NOT NULL,
-  `month` VARCHAR(15) NOT NULL,
-  `fee_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-  `paid_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-  `status` ENUM('Paid','Partial','Unpaid') NOT NULL DEFAULT 'Unpaid',
-  `due_date` DATE DEFAULT NULL,
-  `paid_date` DATE DEFAULT NULL,
-  `remarks` VARCHAR(150) DEFAULT NULL,
+  `term_id` INT DEFAULT NULL,
+  `entry_type` ENUM('Charge','Payment') NOT NULL DEFAULT 'Charge',
+  `description` VARCHAR(150) NOT NULL,
+  `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `entry_date` DATE DEFAULT NULL,
+  `reference` VARCHAR(50) DEFAULT NULL,
+  `note` VARCHAR(255) DEFAULT NULL,
+  `created_by` INT DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY `uniq_student_fee_month` (`student_id`, `academic_year_id`, `month`),
+  INDEX `idx_fee_student` (`student_id`, `academic_year_id`),
+  INDEX `idx_fee_term` (`term_id`),
   INDEX `idx_student_fees_school` (`school_id`),
   CONSTRAINT `fk_fee_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `fk_fee_year` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+  CONSTRAINT `fk_fee_year` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
