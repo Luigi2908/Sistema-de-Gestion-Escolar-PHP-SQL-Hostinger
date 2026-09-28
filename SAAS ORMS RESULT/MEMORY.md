@@ -1055,13 +1055,16 @@ Housekeeping: the three `.bat` files and `saas-requirements.md` were deleted at 
 
 ---
 
-## 15. CSV Templates & Import in Spanish (2026-09-24)
+## 15. CSV Templates & Import in Spanish (2026-09-24 - 2026-09-28)
 
-- **Excel in Spanish Compatibility:** `ORMS.downloadCSV` now defaults to semicolon (`;`) with UTF-8 BOM (`\ufeff`), allowing Windows Excel in Spanish locales to open CSV files directly in separate columns (A, B, C...) without cramming the entire row into cell A1.
-- **Intelligent Delimiter Auto-Detection:** `ORMS.parseCSV` auto-detects delimiter (`;` or `,`) and respects optional `sep=;` / `sep=,` directives. Files saved from Excel (which uses `;` in Spanish locales) or standard comma-separated files are parsed seamlessly.
-- **Bilingual Header Mapping:** Teachers, Students, Classes, and Fees templates are in Spanish with realistic Spanish sample rows. The client-side header validation cleanly accepts both Spanish and legacy English headers.
-- **Flexible Backend Normalization:** Date parsers (`tchDate`, `stuNormDate`, `feeNormDate`) accept `YYYY-MM-DD`, `DD/MM/YYYY`, and `DD-MM-YYYY` and normalize to `YYYY-MM-DD`. Gender parser in students accepts `Masculino`, `Femenino`, `Otro`, `M`, `F`. Fee type accepts `Cargo`, `Pago`, `Cobro`, `Abono`.
-- **Cache-Buster:** Bumped to **`orms.js?v=2.5`** across all 38 PHP pages.
+- **Excel in Spanish Compatibility:** `ORMS.downloadCSV` and `downloadSheet` now default to semicolon (`;`) with UTF-8 BOM (`\ufeff`), allowing Windows Excel in Spanish locales to open CSV files directly in separate columns (A, B, C...) without cramming the entire row into cell A1.
+- **Intelligent Delimiter Auto-Detection:** `ORMS.parseCSV` and `meParseCsv` auto-detect delimiter (`;` or `,`) and respect optional `sep=;` / `sep=,` directives. Files saved from Excel (which uses `;` in Spanish locales) or standard comma-separated files are parsed seamlessly.
+- **Bilingual Header Mapping:**
+  - **Teachers:** `TCH_CSV_HEAD_ES` & `TCH_SYNONYMS` for 11 columns (`plantilla_importar_docentes.csv`).
+  - **Students:** `CSV_HEAD_ES` & `STU_SYNONYMS` for 18 columns (`plantilla_importar_estudiantes.csv`).
+  - **Classes & Sections:** `CLS_CSV_HEAD_ES` & `CLS_SYNONYMS` for 4 columns (`plantilla_importar_grados.csv`).
+  - **Marks Entry (Offline Score Sheet):** `Hoja_Calificaciones_...csv` generated with Spanish headers (`Matrícula`, `Rollo`, `Estudiante`, subject labels), `;` delimiter and UTF-8 BOM. `meImportRun` flexibly accepts Spanish terms (`matricula`, `codigo`, `rollo`, `estudiante`, `teoria`, `practica`, etc.) alongside English (`admission no`, `roll`, `student name`, `theory`, `practical`). `meCell` supports decimal commas (e.g. `85,5`) and Spanish absent strings (`ausente`, `aus`, `falta`).
+- **Cache-Buster:** Bumped to **`styles.css?v=15.3`** and **`orms.js?v=2.7`**.
 
 ---
 
