@@ -1193,7 +1193,7 @@ $canDel   = can('students', 'd');
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
-    <link rel="stylesheet" href="styles.css?v=15.2">
+    <link rel="stylesheet" href="styles.css?v=15.3">
     <link rel="manifest" href="manifest.php">
     <meta name="theme-color" content="#001f3f">
     <link rel="apple-touch-icon" href="icon-192.png">
@@ -1749,7 +1749,7 @@ $canDel   = can('students', 'd');
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
-    <script src="orms.js?v=2.6"></script>
+    <script src="orms.js?v=2.7"></script>
     <script>window.ORMS_CSRF = '<?php echo csrfToken(); ?>';</script>
 
     <script>
@@ -1778,10 +1778,10 @@ $canDel   = can('students', 'd');
         var DEF_PWD  = <?php echo json_encode($defPwd); ?>;
         // header row order MUST match the importer's $get(0..17) in bulkImportStudents
         var CSV_HEAD_ES = [
-            'nombre_completo', 'nombre_padre', 'fecha_nacimiento', 'genero', 'telefono_acudiente',
-            'direccion', 'grado', 'seccion', 'numero_lista', 'fecha_matricula', 'numero_matricula',
-            'nombre_madre', 'nombre_acudiente', 'correo_acudiente', 'documento_identidad',
-            'grupo_sanguineo', 'colegio_anterior', 'observaciones'
+            'Nombre Completo', 'Nombre Padre', 'Fecha Nacimiento', 'Genero', 'Telefono Acudiente',
+            'Direccion', 'Grado', 'Seccion', 'Numero Lista', 'Fecha Matricula', 'Numero Matricula',
+            'Nombre Madre', 'Nombre Acudiente', 'Correo Acudiente', 'Documento Identidad',
+            'Grupo Sanguineo', 'Colegio Anterior', 'Observaciones'
         ];
         var CSV_HEAD_EN = [
             'full_name', 'father_name', 'dob', 'gender', 'guardian_phone',
@@ -2468,6 +2468,27 @@ $canDel   = can('students', 'd');
         }
 
         // ---------- csv template + import ----------
+        var STU_SYNONYMS = [
+            ['nombre_completo', 'nombre', 'nombres', 'estudiante', 'alumno', 'full_name', 'name'],
+            ['nombre_padre', 'padre', 'papa', 'father_name', 'father'],
+            ['fecha_nacimiento', 'fecha_de_nacimiento', 'nacimiento', 'dob', 'birth_date'],
+            ['genero', 'sexo', 'gender', 'sex'],
+            ['telefono_acudiente', 'telefono', 'celular', 'movil', 'celular_acudiente', 'guardian_phone', 'phone'],
+            ['direccion', 'domicilio', 'residencia', 'address'],
+            ['grado', 'curso', 'clase', 'class', 'grade'],
+            ['seccion', 'grupo', 'aula', 'section'],
+            ['numero_lista', 'num_lista', 'lista', 'orden', 'roll_no', 'roll'],
+            ['fecha_matricula', 'fecha_de_matricula', 'fecha_ingreso', 'admission_date'],
+            ['numero_matricula', 'matricula', 'num_matricula', 'codigo', 'codigo_estudiante', 'admission_no'],
+            ['nombre_madre', 'madre', 'mama', 'mother_name', 'mother'],
+            ['nombre_acudiente', 'acudiente', 'tutor', 'representante', 'guardian_name', 'guardian'],
+            ['correo_acudiente', 'correo', 'email', 'email_acudiente', 'guardian_email'],
+            ['documento_identidad', 'documento', 'cedula', 'ti', 'tarjeta_identidad', 'dni', 'identificacion', 'national_id'],
+            ['grupo_sanguineo', 'tipo_sangre', 'rh', 'sangre', 'blood_group', 'blood'],
+            ['colegio_anterior', 'escuela_anterior', 'institucion_anterior', 'previous_school'],
+            ['observaciones', 'observacion', 'notas', 'nota', 'remarks']
+        ];
+
         function stuCleanHead(s) {
             return String(s || '').trim().toLowerCase()
                 .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -2477,17 +2498,21 @@ $canDel   = can('students', 'd');
         function stuHeaderMatches(head) {
             if (!head || !head.length) return false;
             var hClean = head.map(stuCleanHead);
+            if (hClean.length !== 18) return false;
             var esClean = CSV_HEAD_ES.map(stuCleanHead);
             var enClean = CSV_HEAD_EN.map(stuCleanHead);
-            if (hClean.length !== esClean.length) return false;
-            return (hClean.join('|') === esClean.join('|')) || (hClean.join('|') === enClean.join('|'));
+            if (hClean.join('|') === esClean.join('|') || hClean.join('|') === enClean.join('|')) return true;
+            for (var c = 0; c < 18; c++) {
+                if (STU_SYNONYMS[c].indexOf(hClean[c]) === -1) return false;
+            }
+            return true;
         }
 
         function stuTemplate() {
             ORMS.downloadCSV('plantilla_importar_estudiantes.csv', [
                 CSV_HEAD_ES,
-                ['Estudiante Ejemplo', 'Padre Ejemplo', '2014-05-10', 'Masculino', '300-1234567', 'Calle 10 # 20-30', 'Class 5', 'A', '1', '2026-02-01', '',
-                 'Madre Ejemplo', 'Padre Ejemplo', 'acudiente@ejemplo.com', '1098765432', 'O+', 'Colegio Anterior', 'Estudiante nuevo']
+                ['Estudiante Ejemplo', 'Juan Pérez', '2014-05-10', 'Masculino', '300-1234567', 'Calle 10 # 20-30', 'Grado 1', '1-A', '1', '2026-02-01', 'EST-2026-001',
+                 'María Gómez', 'Juan Pérez', 'acudiente@ejemplo.com', '1098765432', 'O+', 'Institución Educativa Anterior', 'Estudiante nuevo']
             ]);
             ORMS.ok('Plantilla descargada con éxito');
         }
